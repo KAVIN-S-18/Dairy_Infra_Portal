@@ -1,0 +1,383 @@
+/* ============================================================
+   Dairy Infra Portal – Shared Page Styles
+   Layout: Full-viewport image → dark overlay → floating card
+   ============================================================ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* ── Page shell ────────────────────────────────────────────── */
+.dip-page {
+  position: relative;
+  width: 100vw;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Background (Premium Gradient instead of blurry image) ──── */
+.dip-bg-container {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  /* Deep, professional forest/emerald gradient */
+  background: linear-gradient(135deg, #0a2e1f 0%, #1a5c38 50%, #0a261a 100%);
+  z-index: 0;
+  overflow: hidden;
+}
+
+/* Subtle pattern/glow to add depth without blur issues */
+.dip-bg-pattern {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 10% 20%, rgba(255, 255, 255, 0.03) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(255, 255, 255, 0.03) 0%, transparent 40%);
+  animation: subtleGlow 20s infinite alternate;
+}
+
+@keyframes subtleGlow {
+  0% {
+    opacity: 0.5;
+  }
+
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ── Dark gradient overlay (Refined for the new background) ─── */
+.dip-overlay {
+  position: fixed;
+  inset: 0;
+  background: radial-gradient(circle at center, transparent 0%, rgba(0, 0, 0, 0.2) 100%);
+  z-index: 1;
+}
+
+/* ── Top Navigation Bar ────────────────────────────────────── */
+.dip-nav {
+  position: relative;
+  z-index: 10;
+  background: rgba(255, 255, 255, 0.98);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.09);
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 52px;
+  flex-shrink: 0;
+  box-shadow: 0 1px 12px rgba(0, 0, 0, 0.08);
+}
+
+.dip-nav-brand {
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+}
+
+.dip-nav-brand-name {
+  font-size: 17px;
+  font-weight: 800;
+  color: #1a5c38;
+  letter-spacing: -0.3px;
+  line-height: 1.1;
+}
+
+.dip-nav-brand-sub {
+  font-size: 11px;
+  color: #9ca3af;
+  font-weight: 400;
+  letter-spacing: 0.2px;
+}
+
+.dip-nav-links {
+  display: flex;
+  gap: 36px;
+  align-items: center;
+}
+
+.dip-nav-link {
+  text-decoration: none;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
+  letter-spacing: 0.1px;
+  transition: color 0.15s;
+}
+
+.dip-nav-link:hover {
+  color: #1a5c38;
+}
+
+.dip-nav-link.active {
+  color: #1a5c38;
+  font-weight: 700;
+}
+
+/* ── Page body (scrollable content) ───────────────────────── */
+.dip-body {
+  position: relative;
+  z-index: 2;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+}
+
+/* ── Floating white form card ──────────────────────────────── */
+.dip-card {
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.40), 0 4px 16px rgba(0, 0, 0, 0.20);
+  width: 100%;
+  max-width: 420px;
+  padding: 40px 40px 36px;
+  position: relative;
+}
+
+/* wider card for registration */
+.dip-card.wide {
+  max-width: 480px;
+}
+
+/* ── Card header ───────────────────────────────────────────── */
+.dip-card-site {
+  font-size: 11px;
+  font-weight: 700;
+  color: #1a5c38;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.dip-card-title {
+  font-size: 26px;
+  font-weight: 800;
+  color: #111827;
+  margin: 0 0 4px 0;
+  letter-spacing: -0.5px;
+}
+
+.dip-card-sub {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 28px 0;
+}
+
+/* ── Form inputs (FIX: no double-box on password) ─────────── */
+.dip-form .ant-form-item {
+  margin-bottom: 18px;
+}
+
+.dip-form .ant-form-item-label>label {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #374151 !important;
+  height: auto !important;
+}
+
+.dip-form .ant-form-item-explain-error {
+  font-size: 12px !important;
+  color: #dc2626 !important;
+}
+
+/* Plain text inputs */
+.dip-form .ant-input {
+  height: 44px !important;
+  border-radius: 8px !important;
+  border: 1.5px solid #e5e7eb !important;
+  background: #f9fafb !important;
+  font-size: 14px !important;
+  padding: 0 12px !important;
+  box-shadow: none !important;
+  color: #111827 !important;
+}
+
+.dip-form .ant-input:focus {
+  border-color: #1a5c38 !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 3px rgba(26, 92, 56, 0.10) !important;
+}
+
+/*  *** FIX: Password wrapper (outer box) ***  */
+.dip-form .ant-input-affix-wrapper {
+  height: 44px !important;
+  border-radius: 8px !important;
+  border: 1.5px solid #e5e7eb !important;
+  background: #f9fafb !important;
+  padding: 0 12px !important;
+  box-shadow: none !important;
+  display: flex !important;
+  align-items: center !important;
+}
+
+.dip-form .ant-input-affix-wrapper:focus,
+.dip-form .ant-input-affix-wrapper-focused {
+  border-color: #1a5c38 !important;
+  background: #fff !important;
+  box-shadow: 0 0 0 3px rgba(26, 92, 56, 0.10) !important;
+}
+
+/*  *** FIX: Inner input of password wrapper — NO separate height/border ***  */
+.dip-form .ant-input-affix-wrapper .ant-input {
+  height: auto !important;
+  /* remove fixed height on nested input */
+  border: none !important;
+  /* remove border on nested input */
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  font-size: 14px !important;
+  color: #111827 !important;
+  flex: 1 !important;
+}
+
+.dip-form .ant-input-affix-wrapper .ant-input:focus {
+  border: none !important;
+  box-shadow: none !important;
+}
+
+/* Select */
+.dip-form .ant-select-selector {
+  height: 44px !important;
+  border-radius: 8px !important;
+  border: 1.5px solid #e5e7eb !important;
+  background: #f9fafb !important;
+  font-size: 14px !important;
+  display: flex !important;
+  align-items: center !important;
+  padding: 0 12px !important;
+}
+
+.dip-form .ant-select-focused .ant-select-selector {
+  border-color: #1a5c38 !important;
+  box-shadow: 0 0 0 3px rgba(26, 92, 56, 0.10) !important;
+}
+
+.dip-form .ant-select-selection-item,
+.dip-form .ant-select-selection-placeholder {
+  line-height: 42px !important;
+  font-size: 14px !important;
+}
+
+/* ── Primary submit button ─────────────────────────────────── */
+.dip-form .dip-btn {
+  height: 48px !important;
+  border-radius: 8px !important;
+  background: #1a5c38 !important;
+  border-color: #1a5c38 !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  font-size: 14px !important;
+  letter-spacing: 0.6px !important;
+  width: 100%;
+  margin-top: 8px;
+  transition: background 0.18s !important;
+}
+
+.dip-form .dip-btn:hover,
+.dip-form .dip-btn:focus {
+  background: #145230 !important;
+  border-color: #145230 !important;
+}
+
+/* ── Divider + footer links inside card ────────────────────── */
+.dip-card-footer {
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dip-card-footer p {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.dip-card-footer a {
+  color: #1a5c38;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.dip-card-footer a:hover {
+  text-decoration: underline;
+}
+
+.dip-card-footer a.muted {
+  color: #9ca3af;
+  font-weight: 500;
+}
+
+/* ── Info notice block (farmer page) ───────────────────────── */
+.dip-notice {
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 22px;
+  font-size: 13px;
+  color: #374151;
+  line-height: 1.7;
+}
+
+.dip-notice strong {
+  color: #111827;
+}
+
+/* ── Footer bar (below page body, over image) ──────────────── */
+.dip-page-footer {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 52px;
+  background: rgba(0, 0, 0, 0.45);
+  flex-shrink: 0;
+}
+
+.dip-page-footer span {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.38);
+}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media (max-width: 600px) {
+  .dip-nav {
+    padding: 0 20px;
+  }
+
+  .dip-nav-links {
+    display: none;
+  }
+
+  .dip-card {
+    padding: 28px 22px;
+  }
+
+  .dip-body {
+    padding: 32px 16px;
+  }
+
+  .dip-page-footer {
+    padding: 10px 20px;
+  }
+}

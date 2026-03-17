@@ -140,13 +140,25 @@ exports.login = async (req, res) => {
           const month = String(dob.getMonth() + 1).padStart(2, '0');
           const year = dob.getFullYear();
           const dobString = `${day}${month}${year}`; // DDMMYYYY
-          
+
           if (password === dobString) {
             user = farmer;
             role = 'FARMER';
             userId = farmer.id;
           } else {
-            return res.status(401).json({ error: 'Invalid credentials' });
+            // Also check UTC to be safe
+            const uDay = String(dob.getUTCDate()).padStart(2, '0');
+            const uMonth = String(dob.getUTCMonth() + 1).padStart(2, '0');
+            const uYear = dob.getUTCFullYear();
+            const uDobString = `${uDay}${uMonth}${uYear}`;
+
+            if (password === uDobString) {
+              user = farmer;
+              role = 'FARMER';
+              userId = farmer.id;
+            } else {
+              return res.status(401).json({ error: 'Invalid credentials' });
+            }
           }
         } else {
           return res.status(401).json({ error: 'Farmer account not properly configured' });
@@ -188,7 +200,10 @@ exports.login = async (req, res) => {
       userResponse.fullName = user.fullName;
       userResponse.adminNumber = user.adminNumber;
     } else if (['SUPERVISOR', 'OPERATOR', 'MPCS_OFFICER'].includes(role)) {
-      if (role === 'SUPERVISOR') userResponse.supId = user.supId;
+      if (role === 'SUPERVISOR') {
+        userResponse.supId = user.supId;
+        userResponse.specialization = user.specialization;
+      }
       if (role === 'OPERATOR') userResponse.opId = user.opId;
       if (role === 'MPCS_OFFICER') userResponse.mpcsId = user.mpcsId;
       userResponse.fullName = user.fullName;
@@ -313,5 +328,75 @@ exports.getApprovedAdmins = async (req, res) => {
   } catch (error) {
     console.error('Error fetching approved admins:', error);
     res.status(500).json({ error: 'Failed to fetch approved admins' });
+  }
+};
+/**
+ * Specific Farmer Login using phone number (for /farmer-login endpoint)
+ */
+exports.farmerLogin = async (req, res) => {
+  try {
+    const { phoneNumber, password } = req.body;
+
+    if (!phoneNumber || !password) {
+      return res.status(400).json({ error: 'Phone number and password are required' });
+    }
+
+    const farmer = await Farmer.findOne({ where: { phoneNumber } });
+    if (!farmer) {
+      return res.status(401).json({ error: 'Invalid phone number or password' });
+    }
+
+    if (farmer.status !== 'ACTIVE') {
+      return res.status(403).json({ error: 'Your account is inactive' });
+    }
+
+    let validPassword = false;
+    if (farmer.dateOfBirth) {
+      const dob = new Date(farmer.dateOfBirth);
+
+      // Try local date
+      const day = String(dob.getDate()).padStart(2, '0');
+      const month = String(dob.getMonth() + 1).padStart(2, '0');
+      const year = dob.getFullYear();
+      const dobString = `${day}${month}${year}`;
+
+      // Try UTC date
+      const uDay = String(dob.getUTCDate()).padStart(2, '0');
+      const uMonth = String(dob.getUTCMonth() + 1).padStart(2, '0');
+      const uYear = dob.getUTCFullYear();
+      const uDobString = `${uDay}${uMonth}${uYear}`;
+
+      if (password === dobString || password === uDobString) {
+        validPassword = true;
+      }
+    }
+
+    if (!validPassword) {
+      return res.status(401).json({ error: 'Invalid phone number or password' });
+    }
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: farmer.id, phoneNumber: farmer.phoneNumber, role: 'FARMER', farmerId: farmer.farmerId },
+      process.env.JWT_SECRET || 'your_secret_key',
+      { expiresIn: '24h' }
+    );
+
+    return res.status(200).json({
+      message: 'Farmer login successful',
+      token,
+      user: {
+        id: farmer.id,
+        fullName: farmer.fullName,
+        phoneNumber: farmer.phoneNumber,
+        email: farmer.email,
+        role: 'FARMER',
+        farmerId: farmer.farmerId,
+        mpcsOfficerId: farmer.mpcsOfficerId,
+      },
+    });
+  } catch (error) {
+    console.error('Farmer login error:', error);
+    res.status(500).json({ error: 'Login failed' });
   }
 };

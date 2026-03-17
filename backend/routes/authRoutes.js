@@ -1,15 +1,14 @@
 const express = require('express');
 const authController = require('../controllers/authControllerV2');
-const authControllerV1 = require('../controllers/authController');
 const { verifyToken, isSuperAdmin } = require('../middleware/authMiddleware');
 
 const router = express.Router();
 
 /**
- * Public routes
+ * Public routesy
  */
 router.post('/login', authController.login);
-router.post('/farmer-login', authControllerV1.farmerLogin);
+router.post('/farmer-login', authController.farmerLogin);
 
 /**
  * Protected routes

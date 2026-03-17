@@ -12,6 +12,7 @@ const TransportManager = require('./models/TransportManager');
 const Driver = require('./models/Driver');
 const MotorVehicle = require('./models/MotorVehicle');
 const Trip = require('./models/Trip');
+const DairyInfrastructure = require('./models/DairyInfrastructure');
 
 async function seedDatabase() {
   try {
@@ -152,7 +153,7 @@ async function seedDatabase() {
       const hashedPassword = await bcrypt.hash('tm@123', 10);
       const tmFullName = `Transport Manager under ${dm.dmId}`;
       const tmEmail = `tm1@dm${dm.id}.com`;
-      
+
       const tm = await TransportManager.create({
         tmId: `${dm.dmId}-TM1`,
         dmId: dm.id,
@@ -166,7 +167,7 @@ async function seedDatabase() {
         licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
         status: 'ACTIVE',
       });
-      
+
       // Create User record for Transport Manager
       await User.create({
         fullName: tmFullName,
@@ -176,7 +177,7 @@ async function seedDatabase() {
         status: 'APPROVED',
         approvedAt: new Date(),
       });
-      
+
       tmData.push(tm);
       console.log(`✅ Transport Manager created: ${tm.tmId}`);
 
@@ -185,7 +186,7 @@ async function seedDatabase() {
         const driverPassword = await bcrypt.hash('driver@123', 10);
         const driverFullName = `Driver ${drIdx} under ${tm.tmId}`;
         const driverEmail = `driver${drIdx}@tm${tm.id}.com`;
-        
+
         const driver = await Driver.create({
           driverId: `${tm.tmId}-DR${drIdx}`,
           tmId: tm.id,
@@ -201,7 +202,7 @@ async function seedDatabase() {
           licenseClass: ['LMV', 'HMV', 'HPMV'][drIdx % 3],
           status: 'ACTIVE',
         });
-        
+
         // Create User record for Driver
         await User.create({
           fullName: driverFullName,
@@ -211,7 +212,7 @@ async function seedDatabase() {
           status: 'APPROVED',
           approvedAt: new Date(),
         });
-        
+
         console.log(`✅ Driver created: ${driver.driverId}`);
       }
 
@@ -248,7 +249,7 @@ async function seedDatabase() {
         const month = String(dob.getMonth() + 1).padStart(2, '0');
         const year = dob.getFullYear();
         const dobString = `${day}${month}${year}`; // DDMMYYYY format
-        
+
         const farmer = await Farmer.create({
           farmerId: `${mpcsOfficer.mpcsId}-F${farmerIdx}`,
           mpcsOfficerId: mpcsOfficer.id,
@@ -256,18 +257,52 @@ async function seedDatabase() {
           fullName: `Farmer ${farmerIdx} under ${mpcsOfficer.mpcsId}`,
           phoneNumber: `98${String(Math.random()).slice(2, 10)}`,
           dateOfBirth: dob,
-          farmSize: 5 + (farmerIdx * 0.5),
+          farmSize: 5 + (farmerIdx * 1.5),
           numberOfCattle: 10 + farmerIdx,
+          landDetails: {
+            totalArea: 5 + (farmerIdx * 1.5),
+            location: `Village ${farmerIdx}, Sector ${mpcsOfficer.id}`,
+            irrigationType: ['CANAL', 'WELL', 'BOREWELL'][farmerIdx % 3],
+            soilType: ['Black', 'Red', 'Alluvial'][farmerIdx % 3],
+            cropPattern: 'Paddy, Sugarcane'
+          },
+          cattleDetails: {
+            totalCount: 10 + farmerIdx,
+            breed: ['Holstein', 'Jersey', 'Gir'][farmerIdx % 3],
+            healthStatus: 'HEALTHY',
+            lastVaccineDate: new Date(Date.now() - 60 * 24 * 60 * 60 * 1000),
+            notes: 'Regular checkup completed'
+          },
           status: 'ACTIVE',
           createdByMpcsOfficerId: mpcsOfficer.id,
         });
         console.log(`✅ Farmer created: ${farmer.farmerId} (ID: ${farmer.id}) - DOB Password: ${dobString}`);
 
+        // Create 2 Infrastructure records per Farmer (assigned by MPCS Officer logic)
+        const infraTypes = [
+          { name: 'Bulk Milk Cooler', type: 'COOLER' },
+          { name: 'Electric Pump', type: 'PUMP' },
+          { name: 'Stainless Steel Container', type: 'CONTAINER' }
+        ];
+        for (let i = 0; i < 2; i++) {
+          const type = infraTypes[(farmerIdx + i) % 3];
+          await DairyInfrastructure.create({
+            farmerId: farmer.id,
+            equipmentName: type.name,
+            equipmentType: type.type,
+            purchaseDate: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
+            condition: 'GOOD',
+            maintenanceNotes: 'Assigned and inspected by MPCS Officer',
+            lastMaintenanceDate: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000),
+            nextMaintenanceDate: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000)
+          });
+        }
+
         // Create 3 Milk Procurement records per Farmer
         for (let procIdx = 1; procIdx <= 3; procIdx++) {
           const quantity = 20 + (procIdx * 5);
           const quality = ['A', 'B', 'C'][procIdx - 1];
-          
+
           await MilkProcurement.create({
             farmerId: farmer.id,
             farmerFarmerId: farmer.farmerId,

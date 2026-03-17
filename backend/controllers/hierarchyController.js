@@ -156,7 +156,7 @@ exports.getDistrictManagersByAdmin = async (req, res) => {
 // Supervisor Management
 exports.createSupervisor = async (req, res) => {
   try {
-    const { dmId, fullName, email, password } = req.body;
+    const { dmId, fullName, email, password, specialization } = req.body;
 
     const dm = await DistrictManager.findOne({ where: { dmId } });
     if (!dm) {
@@ -183,6 +183,7 @@ exports.createSupervisor = async (req, res) => {
       email,
       passwordHash,
       status: 'ACTIVE',
+      specialization: specialization || 'PRODUCTION',
     });
 
     res.status(201).json({

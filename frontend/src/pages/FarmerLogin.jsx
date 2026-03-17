@@ -1,14 +1,16 @@
 import React from 'react';
-import { Form, Input, Button, Card, Row, Col, message } from 'antd';
-import { LoginOutlined, LockOutlined, PhoneOutlined } from "@ant-design/icons";
+import { Form, Input, Button, Typography, message } from 'antd';
 import { useNavigate, Link } from 'react-router-dom';
 import axios from 'axios';
+import bgImage from '../assets/home-bg.jpg';
+import './portal.css';
+
+const { Text } = Typography;
 
 const FarmerLogin = () => {
     const [form] = Form.useForm();
     const [loading, setLoading] = React.useState(false);
     const navigate = useNavigate();
-
     const API_URL = 'http://localhost:5000/api';
 
     const onFinish = async (values) => {
@@ -18,136 +20,114 @@ const FarmerLogin = () => {
                 phoneNumber: values.phoneNumber,
                 password: values.password,
             });
-
             const { token, user } = response.data;
-
-            // Store token and user info
             localStorage.setItem('token', token);
             localStorage.setItem('user', JSON.stringify(user));
-
             message.success('Login successful!');
             navigate('/farmer-dashboard');
         } catch (error) {
-            const errorMsg = error.response?.data?.error || 'Login failed. Please try again.';
-            message.error(errorMsg);
-            console.error(error);
+            message.error(error.response?.data?.error || 'Login failed. Please try again.');
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <div>
-            {/* CONTENT CONTAINER */}
-            <div
-                style={{
-                    width: '100%',
-                    maxWidth: '500px',
-                    margin: '0 auto',
-                }}
-            >
-                <Row gutter={32} justify="center">
-                    <Col xs={24} sm={20} md={16}>
-                        <Card
-                            style={{
-                                width: '100%',
-                                borderRadius: '8px',
-                                boxShadow: '0 6px 20px rgba(0, 0, 0, 0.15)',
-                            }}
+        <div className="dip-page">
+            {/* ── Premium Gradient Background ── */}
+            <div className="dip-bg-container">
+                <div className="dip-bg-pattern" />
+            </div>
+            <div className="dip-overlay" />
+
+            {/* ── Top Nav (same as Home) ── */}
+            <nav className="dip-nav">
+                <Link to="/" className="dip-nav-brand">
+                    <span className="dip-nav-brand-name">Dairy Infra Portal</span>
+                    <span className="dip-nav-brand-sub">Infrastructure Management System</span>
+                </Link>
+                <div className="dip-nav-links">
+                    <Link to="/login" className="dip-nav-link">Staff Login</Link>
+                    <Link to="/farmer-login" className="dip-nav-link active">Farmer Login</Link>
+                    <Link to="/admin-registration" className="dip-nav-link">Register</Link>
+                </div>
+            </nav>
+
+            {/* ── Centered card ── */}
+            <div className="dip-body">
+                <div className="dip-card">
+                    <span className="dip-card-site">Dairy Infra Portal</span>
+                    <h2 className="dip-card-title">Farmer Sign In</h2>
+                    <p className="dip-card-sub">Enter your phone number and date of birth</p>
+
+                    {/* Login instructions notice */}
+                    <div className="dip-notice">
+                        <strong>Phone Number</strong> — your 10-digit registered mobile number<br />
+                        <strong>Password</strong> — date of birth in <strong>DDMMYYYY</strong> format<br />
+                        <span style={{ fontSize: '12px', color: '#6b7280' }}>e.g., 17 February 1981 → 17021981</span>
+                    </div>
+
+                    <Form
+                        form={form}
+                        layout="vertical"
+                        onFinish={onFinish}
+                        requiredMark={false}
+                        className="dip-form"
+                    >
+                        <Form.Item
+                            label="Phone Number"
+                            name="phoneNumber"
+                            rules={[
+                                { required: true, message: 'Please enter your phone number' },
+                                { len: 10, message: 'Must be exactly 10 digits' },
+                            ]}
                         >
-                            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-                                <h2 style={{ marginBottom: '10px', color: '#333' }}>
-                                    Farmer Login
-                                </h2>
-                                <p style={{ color: '#666', marginBottom: '0' }}>
-                                    Sign in to your farmer account
-                                </p>
-                            </div>
+                            <Input placeholder="10-digit mobile number" size="large" maxLength={10} />
+                        </Form.Item>
 
-                            <Form
-                                form={form}
-                                name="farmer-login"
-                                layout="vertical"
-                                onFinish={onFinish}
-                                requiredMark={false}
+                        <Form.Item
+                            label="Password (Date of Birth)"
+                            name="password"
+                            rules={[{ required: true, message: 'Please enter your date of birth as password' }]}
+                            extra={<span style={{ fontSize: '12px', color: '#9ca3af' }}>Format: DDMMYYYY &nbsp;·&nbsp; e.g., 17021981</span>}
+                        >
+                            <Input.Password placeholder="DDMMYYYY" size="large" />
+                        </Form.Item>
+
+                        <Form.Item style={{ marginBottom: 0 }}>
+                            <Button
+                                htmlType="submit"
+                                block
+                                size="large"
+                                loading={loading}
+                                style={{
+                                    height: '48px',
+                                    borderRadius: '8px',
+                                    background: '#1a5c38',
+                                    borderColor: '#1a5c38',
+                                    color: '#fff',
+                                    fontWeight: 700,
+                                    fontSize: '14px',
+                                    letterSpacing: '0.6px',
+                                    marginTop: '8px',
+                                }}
                             >
-                                <Form.Item
-                                    label="Phone Number"
-                                    name="phoneNumber"
-                                    rules={[
-                                        { required: true, message: 'Please enter your phone number' },
-                                        { len: 10, message: 'Phone number must be 10 digits' }
-                                    ]}
-                                >
-                                    <Input
-                                        placeholder="Enter your 10-digit phone number"
-                                        prefix={<PhoneOutlined />}
-                                        size="large"
-                                        maxLength={10}
-                                    />
-                                </Form.Item>
+                                Sign In
+                            </Button>
+                        </Form.Item>
+                    </Form>
 
-                                <Form.Item
-                                    label="Password"
-                                    name="password"
-                                    rules={[
-                                        { required: true, message: 'Please enter your password' },
-                                    ]}
-                                >
-                                    <Input.Password
-                                        placeholder="Enter your password (Date of birth DDMMYYYY)"
-                                        prefix={<LockOutlined />}
-                                        size="large"
-                                    />
-                                </Form.Item>
+                    <div className="dip-card-footer">
+                        <p>Staff member? <Link to="/login">Staff Login →</Link></p>
+                        <p><Link to="/" className="muted">← Back to Home</Link></p>
+                    </div>
+                </div>
+            </div>
 
-                                <Form.Item
-                                    style={{ 
-                                        marginBottom: '20px',
-                                        padding: '12px',
-                                        backgroundColor: '#e6f7ff',
-                                        borderRadius: '4px'
-                                    }}
-                                >
-                                    <p style={{ margin: 0, fontSize: '12px', color: '#0050b3' }}>
-                                        Default password: Your date of birth in DDMMYYYY format
-                                        <br />
-                                        Example: 17021981 (17 Feb 1981)
-                                    </p>
-                                </Form.Item>
-
-                                <Form.Item style={{ marginBottom: '20px' }}>
-                                    <Button
-                                        type="primary"
-                                        htmlType="submit"
-                                        block
-                                        size="large"
-                                        icon={<LoginOutlined />}
-                                        style={{ fontWeight: 'bold' }}
-                                        loading={loading}
-                                    >
-                                        Login
-                                    </Button>
-                                </Form.Item>
-                            </Form>
-
-                            <div style={{ textAlign: 'center', marginTop: '20px' }}>
-                                <p style={{ color: '#666', marginBottom: '0' }}>
-                                    <Link
-                                        to="/"
-                                        style={{
-                                            color: '#667eea',
-                                            fontWeight: 'bold',
-                                            textDecoration: 'none',
-                                        }}
-                                    >
-                                        Back to Home
-                                    </Link>
-                                </p>
-                            </div>
-                        </Card>
-                    </Col>
-                </Row>
+            {/* ── Footer ── */}
+            <div className="dip-page-footer">
+                <span>© 2026 Dairy Infra Portal · All rights reserved</span>
+                <span>Secure · Farmer Access</span>
             </div>
         </div>
     );

@@ -49,6 +49,10 @@ const Supervisor = sequelize.define(
       type: DataTypes.ENUM('ACTIVE', 'INACTIVE'),
       defaultValue: 'ACTIVE',
     },
+    specialization: {
+      type: DataTypes.ENUM('COLLECTION', 'PRODUCTION'),
+      defaultValue: 'PRODUCTION',
+    },
   },
   {
     tableName: 'supervisors',

@@ -1,5 +1,7 @@
 const FarmerMilkLog = require('../models/FarmerMilkLog');
 const DairyInfrastructure = require('../models/DairyInfrastructure');
+const MilkProcurement = require('../models/MilkProcurement');
+const Farmer = require('../models/Farmer');
 
 // Log milk production and sales
 exports.logMilkProduction = async (req, res) => {
@@ -33,7 +35,7 @@ exports.logMilkProduction = async (req, res) => {
   }
 };
 
-// Get milk sales list
+// Get milk sales list (from official procurement records)
 exports.getMilkSalesList = async (req, res) => {
   try {
     const farmerId = req.user.id;
@@ -41,19 +43,32 @@ exports.getMilkSalesList = async (req, res) => {
 
     const whereClause = { farmerId };
     if (startDate && endDate) {
-      whereClause.logDate = {
+      whereClause.procurementDate = {
         [require('sequelize').Op.between]: [new Date(startDate), new Date(endDate)],
       };
     }
 
-    const logs = await FarmerMilkLog.findAll({
+    const logs = await MilkProcurement.findAll({
       where: whereClause,
-      order: [['logDate', 'DESC']],
+      order: [['procurementDate', 'DESC']],
     });
+
+    // Map procurement fields to frontend expected fields
+    const formattedLogs = logs.map(log => ({
+      id: log.id,
+      logDate: log.procurementDate,
+      quantityProduced: log.quantityLiters, // Simplification for UI
+      quantitySold: log.quantityLiters,
+      pricePerLiter: log.pricePerLiter,
+      totalAmount: log.totalAmount,
+      snf: log.snf,
+      fat: log.fat,
+      remarks: log.notes
+    }));
 
     res.status(200).json({
       success: true,
-      data: logs,
+      data: formattedLogs,
     });
   } catch (error) {
     res.status(500).json({
@@ -153,18 +168,18 @@ exports.updateInfrastructureMaintenance = async (req, res) => {
   }
 };
 
-// Get milk sales summary
+// Get milk sales summary (from official procurement records)
 exports.getMilkSalesSummary = async (req, res) => {
   try {
     const farmerId = req.user.id;
 
-    const logs = await FarmerMilkLog.findAll({
+    const logs = await MilkProcurement.findAll({
       where: { farmerId },
     });
 
     const summary = {
-      totalProduced: logs.reduce((sum, log) => sum + log.quantityProduced, 0),
-      totalSold: logs.reduce((sum, log) => sum + log.quantitySold, 0),
+      totalProduced: logs.reduce((sum, log) => sum + log.quantityLiters, 0),
+      totalSold: logs.reduce((sum, log) => sum + log.quantityLiters, 0),
       totalEarnings: logs.reduce((sum, log) => sum + log.totalAmount, 0),
       transactionCount: logs.length,
       averagePrice: logs.length > 0 ? logs.reduce((sum, log) => sum + log.pricePerLiter, 0) / logs.length : 0,
@@ -186,7 +201,6 @@ exports.getMilkSalesSummary = async (req, res) => {
 // Get farmer complete profile with cattle and land details
 exports.getFarmerProfile = async (req, res) => {
   try {
-    const Farmer = require('../models/Farmer');
     const farmerId = req.user.id;
 
     const farmer = await Farmer.findByPk(farmerId);
@@ -213,7 +227,6 @@ exports.getFarmerProfile = async (req, res) => {
 // Update farmer cattle details
 exports.updateCattleDetails = async (req, res) => {
   try {
-    const Farmer = require('../models/Farmer');
     const { cattleDetails } = req.body;
     const farmerId = req.user.id;
 
@@ -246,7 +259,6 @@ exports.updateCattleDetails = async (req, res) => {
 // Update farmer land details
 exports.updateLandDetails = async (req, res) => {
   try {
-    const Farmer = require('../models/Farmer');
     const { landDetails } = req.body;
     const farmerId = req.user.id;
 

@@ -142,25 +142,38 @@ Farmers login using **phone number** and **password (date of birth in DDMMYYYY f
 - **Phone Number**: 10-digit number (e.g., 9870294203)
 - **Password**: Date of birth in DDMMYYYY format (e.g., 17021981 = 17 Feb 1981)
 
-### Sample Farmers
-Run the following command to get current farmer credentials:
-```bash
-cd backend
-node get-farmer-credentials.js
-```
+### Sample Farmers (Working Credentials)
+Below are current credentials found in the database:
 
-This will display:
-```
 Farmer 1:
-  Farmer ID: A1-DM1-MPCS1-F1
-  Phone: 9870294203
-  Password (DOB DDMMYYYY): 17021981
+  Farmer ID: **A1-DM1-MPCS1-F1**
+  Phone: **9808087792**
+  Password (DOB DDMMYYYY): **20071981**
 
 Farmer 2:
-  Farmer ID: A1-DM1-MPCS1-F2
-  Phone: 9857547034
-  Password (DOB DDMMYYYY): 03081982
-```
+  Farmer ID: **A1-DM1-MPCS1-F2**
+  Phone: **9831932540**
+  Password (DOB DDMMYYYY): **24021982**
+
+Farmer 3:
+  Farmer ID: **A1-DM1-MPCS1-F3**
+  Phone: **9805254653**
+  Password (DOB DDMMYYYY): **20111983**
+
+Farmer 4:
+  Farmer ID: **A1-DM1-MPCS2-F1**
+  Phone: **9859213418**
+  Password (DOB DDMMYYYY): **16071981**
+
+Farmer 5:
+  Farmer ID: **A1-DM1-MPCS2-F2**
+  Phone: **9865299707**
+  Password (DOB DDMMYYYY): **20081982**
+
+Farmer 6:
+  Farmer ID: **A1-DM1-MPCS2-F3**
+  Phone: **9864244843**
+  Password (DOB DDMMYYYY): **04081983**
 
 **Note**: Phone numbers and DOB are randomly generated on each seed, so run the script above to get current credentials.
 

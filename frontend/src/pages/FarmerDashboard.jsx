@@ -1,641 +1,393 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Layout,
-  Card,
-  Table,
-  Button,
-  Modal,
-  Form,
-  Input,
-  Select,
-  message,
-  Statistic,
-  Row,
-  Col,
-  Drawer,
-  InputNumber,
-  DatePicker,
-  Tabs,
-  Tag,
-  List,
-  Space,
+  Layout, Table, Button, Space, Card, Statistic, Row, Col,
+  Tag, message, Menu, Avatar, Dropdown, ConfigProvider, Empty, Divider, Input, Select
 } from 'antd';
-import { LogoutOutlined, PlusOutlined, EditOutlined, ToolOutlined } from '@ant-design/icons';
+import {
+  LogoutOutlined,
+  DashboardOutlined,
+  HistoryOutlined,
+  ToolOutlined,
+  UserOutlined,
+  SettingOutlined,
+  MenuFoldOutlined,
+  MenuUnfoldOutlined,
+  HomeOutlined,
+  EnvironmentOutlined,
+  SafetyCertificateOutlined,
+  SearchOutlined,
+  BarChartOutlined
+} from "@ant-design/icons";
+import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import dayjs from 'dayjs';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as ChartTooltip, ResponsiveContainer } from 'recharts';
 
-const { Header, Content, Footer, Sider } = Layout;
+const { Header, Sider, Content } = Layout;
+const { Search } = Input;
+const { Option } = Select;
 
 const FarmerDashboard = () => {
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(false);
+  const [activeTab, setActiveTab] = useState('overview');
+  const [loading, setLoading] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+
+  // Data states
+  const [farmerProfile, setFarmerProfile] = useState(null);
   const [milkLogs, setMilkLogs] = useState([]);
   const [infrastructure, setInfrastructure] = useState([]);
-  const [farmerProfile, setFarmerProfile] = useState(null);
   const [summary, setSummary] = useState({});
-  const [loading, setLoading] = useState(false);
-  const [isAddMilkModalVisible, setIsAddMilkModalVisible] = useState(false);
-  const [isAddInfraModalVisible, setIsAddInfraModalVisible] = useState(false);
-  const [isEditInfraModalVisible, setIsEditInfraModalVisible] = useState(false);
-  const [isCattleModalVisible, setIsCattleModalVisible] = useState(false);
-  const [isLandModalVisible, setIsLandModalVisible] = useState(false);
-  const [selectedInfra, setSelectedInfra] = useState(null);
-  const [milkForm] = Form.useForm();
-  const [infraForm] = Form.useForm();
-  const [cattleForm] = Form.useForm();
-  const [landForm] = Form.useForm();
 
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   const token = localStorage.getItem('token');
+  const API_URL = 'http://localhost:5000/api';
 
   useEffect(() => {
-    fetchFarmerProfile();
-    fetchMilkLogs();
-    fetchInfrastructure();
-    fetchMilkSalesSummary();
+    if (!token || user.role !== 'FARMER') {
+      navigate('/farmer-login');
+      return;
+    }
+    fetchAllData();
   }, []);
 
-  const fetchFarmerProfile = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/farmer/profile', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setFarmerProfile(response.data.data);
-    } catch (error) {
-      message.error('Failed to fetch farmer profile');
-      console.error(error);
-    }
-  };
-
-  const fetchMilkLogs = async () => {
+  const fetchAllData = async () => {
     try {
       setLoading(true);
-      const response = await axios.get('http://localhost:5000/api/farmer/milk-sales', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setMilkLogs(response.data.data || []);
+      const headers = { Authorization: `Bearer ${token}` };
+
+      const [profileRes, milkRes, infraRes, summaryRes] = await Promise.all([
+        axios.get(`${API_URL}/farmer/profile`, { headers }),
+        axios.get(`${API_URL}/farmer/milk-sales`, { headers }),
+        axios.get(`${API_URL}/farmer/infrastructure`, { headers }),
+        axios.get(`${API_URL}/farmer/milk-sales/summary`, { headers })
+      ]);
+
+      setFarmerProfile(profileRes.data.data);
+      setMilkLogs(milkRes.data.data || []);
+      setInfrastructure(infraRes.data.data || []);
+      setSummary(summaryRes.data.data || {});
     } catch (error) {
-      message.error('Failed to fetch milk logs');
-      console.error(error);
+      console.error('Error fetching data:', error);
+      message.error('Session expired or error fetching data. Please login again.');
+      handleLogout();
     } finally {
       setLoading(false);
-    }
-  };
-
-  const fetchInfrastructure = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/farmer/infrastructure', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setInfrastructure(response.data.data || []);
-    } catch (error) {
-      message.error('Failed to fetch infrastructure');
-      console.error(error);
-    }
-  };
-
-  const fetchMilkSalesSummary = async () => {
-    try {
-      const response = await axios.get('http://localhost:5000/api/farmer/milk-sales/summary', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      setSummary(response.data.data);
-    } catch (error) {
-      message.error('Failed to fetch milk sales summary');
-      console.error(error);
-    }
-  };
-
-  const handleAddMilkLog = async (values) => {
-    try {
-      await axios.post('http://localhost:5000/api/farmer/milk-logs', values, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      message.success('Milk log added successfully');
-      milkForm.resetFields();
-      setIsAddMilkModalVisible(false);
-      fetchMilkLogs();
-      fetchMilkSalesSummary();
-    } catch (error) {
-      message.error(error.response?.data?.message || 'Error adding milk log');
-    }
-  };
-
-  const handleAddInfrastructure = async (values) => {
-    try {
-      await axios.post('http://localhost:5000/api/farmer/infrastructure', values, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      message.success('Infrastructure added successfully');
-      infraForm.resetFields();
-      setIsAddInfraModalVisible(false);
-      fetchInfrastructure();
-    } catch (error) {
-      message.error(error.response?.data?.message || 'Error adding infrastructure');
-    }
-  };
-
-  const handleUpdateInfraMaintenance = async (values) => {
-    try {
-      await axios.patch(
-        `http://localhost:5000/api/farmer/infrastructure/${selectedInfra.id}`,
-        values,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      message.success('Infrastructure maintenance updated');
-      infraForm.resetFields();
-      setIsEditInfraModalVisible(false);
-      setSelectedInfra(null);
-      fetchInfrastructure();
-    } catch (error) {
-      message.error('Error updating infrastructure');
-    }
-  };
-
-  const handleUpdateCattleDetails = async (values) => {
-    try {
-      await axios.patch('http://localhost:5000/api/farmer/cattle-details', 
-        { cattleDetails: values },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      message.success('Cattle details updated successfully');
-      cattleForm.resetFields();
-      setIsCattleModalVisible(false);
-      fetchFarmerProfile();
-    } catch (error) {
-      message.error('Error updating cattle details');
-    }
-  };
-
-  const handleUpdateLandDetails = async (values) => {
-    try {
-      await axios.patch('http://localhost:5000/api/farmer/land-details', 
-        { landDetails: values },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      message.success('Land details updated successfully');
-      landForm.resetFields();
-      setIsLandModalVisible(false);
-      fetchFarmerProfile();
-    } catch (error) {
-      message.error('Error updating land details');
     }
   };
 
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-    window.location.href = '/login';
+    navigate('/farmer-login');
   };
 
-  const conditionColors = {
-    GOOD: 'green',
-    FAIR: 'orange',
-    POOR: 'red',
+  const userProfileMenu = {
+    items: [
+      { key: 'profile', label: 'View Profile', icon: <UserOutlined />, onClick: () => setActiveTab('profile') },
+      { key: 'settings', label: 'Account Settings', icon: <SettingOutlined />, onClick: () => setActiveTab('settings') },
+      { type: 'divider' },
+      { key: 'logout', label: 'Logout', danger: true, icon: <LogoutOutlined />, onClick: handleLogout },
+    ]
   };
+
+  // Filtered data logic
+  const filteredMilkLogs = milkLogs.filter(log =>
+    dayjs(log.logDate).format('DD-MM-YYYY').includes(searchQuery) ||
+    log.quantityProduced?.toString().includes(searchQuery) ||
+    log.totalAmount?.toString().includes(searchQuery)
+  );
+
+  const filteredInfra = infrastructure.filter(item =>
+    item.equipmentName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    item.equipmentType.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   const milkColumns = [
     {
-      title: 'Date',
+      title: 'DATE',
       dataIndex: 'logDate',
       key: 'logDate',
-      render: (text) => dayjs(text).format('DD-MM-YYYY'),
+      render: (text) => <span style={{ fontWeight: 600 }}>{dayjs(text).format('DD MMM YYYY')}</span>
     },
     {
-      title: 'Produced (L)',
+      title: 'SESSION',
+      key: 'session',
+      render: (_, r) => {
+        const sessionName = (r.remarks?.match(/\[Session: (.*?)\]/) || [])[1] || 'MORNING';
+        return <Tag color="purple">{sessionName.toUpperCase()}</Tag>;
+      }
+    },
+    {
+      title: 'PRODUCED (L)',
       dataIndex: 'quantityProduced',
       key: 'quantityProduced',
+      render: (val) => <Tag color="blue">{val} L</Tag>
     },
     {
-      title: 'Sold (L)',
-      dataIndex: 'quantitySold',
-      key: 'quantitySold',
+      title: 'SNF / FAT',
+      key: 'snffat',
+      render: (_, r) => <span>{(r.snf !== null && r.snf !== undefined) ? r.snf : '-'}% / {(r.fat !== null && r.fat !== undefined) ? r.fat : '-'}%</span>
     },
     {
-      title: 'Price/L (₹)',
+      title: 'PRICE/L (₹)',
       dataIndex: 'pricePerLiter',
       key: 'pricePerLiter',
+      render: (val) => <span>₹{val?.toFixed(2)}</span>
     },
     {
-      title: 'Total (₹)',
+      title: 'EARNINGS (₹)',
       dataIndex: 'totalAmount',
       key: 'totalAmount',
-      render: (text) => `₹${text}`,
-    },
+      render: (val) => <span style={{ fontWeight: 700, color: '#1a5c38' }}>₹{val?.toFixed(2)}</span>
+    }
   ];
 
   const infraColumns = [
     {
-      title: 'Equipment',
+      title: 'EQUIPMENT',
       dataIndex: 'equipmentName',
       key: 'equipmentName',
+      render: (text) => <span style={{ fontWeight: 600 }}>{text}</span>
     },
     {
-      title: 'Type',
+      title: 'TYPE',
       dataIndex: 'equipmentType',
       key: 'equipmentType',
+      render: (text) => <Tag>{text}</Tag>
     },
     {
-      title: 'Condition',
+      title: 'CONDITION',
       dataIndex: 'condition',
       key: 'condition',
-      render: (condition) => <Tag color={conditionColors[condition]}>{condition}</Tag>,
+      render: (text) => (
+        <Tag color={text === 'GOOD' ? 'success' : text === 'FAIR' ? 'warning' : 'error'}>
+          {text}
+        </Tag>
+      )
     },
     {
-      title: 'Last Maintenance',
-      dataIndex: 'lastMaintenanceDate',
-      key: 'lastMaintenanceDate',
-      render: (text) => dayjs(text).format('DD-MM-YYYY'),
-    },
-    {
-      title: 'Next Maintenance',
+      title: 'NEXT MAINTENANCE',
       dataIndex: 'nextMaintenanceDate',
       key: 'nextMaintenanceDate',
-      render: (text) => dayjs(text).format('DD-MM-YYYY'),
-    },
-    {
-      title: 'Action',
-      key: 'action',
-      render: (_, record) => (
-        <Button
-          type="link"
-          size="small"
-          icon={<ToolOutlined />}
-          onClick={() => {
-            setSelectedInfra(record);
-            infraForm.setFieldsValue(record);
-            setIsEditInfraModalVisible(true);
-          }}
-        >
-          Update
-        </Button>
-      ),
-    },
+      render: (text) => dayjs(text).format('DD MMM YYYY')
+    }
   ];
 
-  return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider trigger={null} collapsible collapsed={collapsed}>
-        <div className="logo" style={{ color: 'white', fontSize: '18px', fontWeight: 'bold', padding: '16px', textAlign: 'center' }}>
-          {collapsed ? 'FRM' : 'Farmer'}
-        </div>
-        <div style={{ padding: '16px', borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-          <Button type="primary" danger block onClick={handleLogout} icon={<LogoutOutlined />}>
-            {!collapsed && 'Logout'}
-          </Button>
-        </div>
-      </Sider>
-      <Layout>
-        <Header style={{ background: '#fff', padding: '0 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h2 style={{ margin: 0 }}>Farmer Dashboard</h2>
-          <Button
-            type="text"
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ fontSize: '18px' }}
+  const renderContent = () => {
+    switch (activeTab) {
+      case 'overview':
+        return (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '40px' }}>
+              <div>
+                <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#111827', margin: 0 }}>Dairy Performance</h1>
+                <p style={{ color: '#6b7280', fontSize: '15px', marginTop: '4px' }}>Detailed analytics for your farm resource: {farmerProfile?.farmerId}</p>
+              </div>
+              <Button icon={<BarChartOutlined />} type="default">Export Statement</Button>
+            </div>
+
+            <Row gutter={[24, 24]} style={{ marginBottom: '40px' }}>
+              <Col xs={24} sm={12} lg={6}>
+                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TOTAL PRODUCTION" value={summary.totalProduced || 0} precision={1} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} suffix="L" />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TOTAL EARNINGS" value={summary.totalEarnings || 0} precision={2} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} prefix="₹" />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="AVG PRICE/L" value={summary.averagePrice || 0} precision={2} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} prefix="₹" />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="CATTLE COUNT" value={farmerProfile?.cattleDetails?.totalCount || 0} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} suffix="Heads" />
+                </Card>
+              </Col>
+            </Row>
+
+            <Card title={<span style={{ fontWeight: 700 }}>Yield Trends</span>} bordered={false} style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={milkLogs.slice(-7).reverse()}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
+                  <XAxis dataKey="logDate" tickFormatter={(t) => dayjs(t).format('DD MMM')} axisLine={false} tickLine={false} />
+                  <YAxis axisLine={false} tickLine={false} />
+                  <ChartTooltip />
+                  <Line type="monotone" dataKey="quantityProduced" stroke="#1a5c38" strokeWidth={3} dot={{ r: 6, fill: '#1a5c38' }} activeDot={{ r: 8 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </Card>
+          </>
+        );
+      case 'logs':
+        return (
+          <Card
+            title={<span style={{ fontWeight: 700 }}>Milk Procurement History</span>}
+            extra={<Search placeholder="Filter by date or amount..." allowClear onSearch={v => setSearchQuery(v)} style={{ width: 300 }} />}
+            bordered={false}
+            style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
           >
-            ☰
-          </Button>
-        </Header>
-        <Content style={{ margin: '24px 16px' }}>
-          <Row gutter={[16, 16]}>
-            <Col xs={24} sm={12} lg={6}>
-              <Card>
-                <Statistic
-                  title="Total Produced (L)"
-                  value={summary.totalProduced?.toFixed(2) || 0}
-                  valueStyle={{ color: '#1890ff' }}
-                />
+            <Table columns={milkColumns} dataSource={filteredMilkLogs} rowKey="id" loading={loading} />
+          </Card>
+        );
+      case 'infra':
+        return (
+          <Card
+            title={<span style={{ fontWeight: 700 }}>Dairy Infrastructure Details</span>}
+            extra={<Search placeholder="Filter equipment..." allowClear onSearch={v => setSearchQuery(v)} style={{ width: 300 }} />}
+            bordered={false}
+            style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
+          >
+            <Table columns={infraColumns} dataSource={filteredInfra} rowKey="id" loading={loading} />
+          </Card>
+        );
+      case 'profile':
+        return (
+          <Row gutter={[24, 24]}>
+            <Col xs={24} lg={12}>
+              <Card title={<span style={{ fontWeight: 700 }}><SafetyCertificateOutlined /> Cattle Management</span>} bordered={false} style={{ borderRadius: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+                    <span style={{ color: '#6b7280' }}>Total Cattle Registered:</span>
+                    <span style={{ fontWeight: 600, color: '#1a5c38' }}>{farmerProfile?.cattleDetails?.totalCount || 0}</span>
+                  </div>
+
+                  {Array.isArray(farmerProfile?.cattleDetails?.list) && farmerProfile.cattleDetails.list.length > 0 ? (
+                    <div style={{ marginTop: '12px' }}>
+                      <p style={{ fontWeight: 600, marginBottom: '8px', color: '#111827' }}>Individual Tag Records:</p>
+                      <ul style={{ paddingLeft: '20px', margin: 0 }}>
+                        {farmerProfile.cattleDetails.list.map((c, idx) => (
+                          <li key={idx} style={{ marginBottom: '8px' }}>
+                            <span style={{ fontWeight: 600 }}>{c.tagNumber}</span> — {c.breed || 'Unknown Breed'}
+                            <div style={{ fontSize: '12px', color: '#6b7280' }}>
+                              Last Vaccinated: {c.lastVaccination ? dayjs(c.lastVaccination).format('DD MMM YYYY') : 'Not Recorded'}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0' }}>
+                      <span style={{ color: '#6b7280' }}>Records:</span>
+                      <Tag color="warning">No specific tags tracked</Tag>
+                    </div>
+                  )}
+                </div>
               </Card>
             </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card>
-                <Statistic
-                  title="Total Sold (L)"
-                  value={summary.totalSold?.toFixed(2) || 0}
-                  valueStyle={{ color: '#52c41a' }}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card>
-                <Statistic
-                  title="Total Earnings (₹)"
-                  value={summary.totalEarnings?.toFixed(2) || 0}
-                  valueStyle={{ color: '#faad14' }}
-                />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card>
-                <Statistic
-                  title="Avg Price/L (₹)"
-                  value={summary.averagePrice?.toFixed(2) || 0}
-                  valueStyle={{ color: '#722ed1' }}
-                />
+            <Col xs={24} lg={12}>
+              <Card title={<span style={{ fontWeight: 700 }}><EnvironmentOutlined /> Farm Land Profile</span>} bordered={false} style={{ borderRadius: '16px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+                    <span style={{ color: '#6b7280' }}>Total Area:</span>
+                    <span style={{ fontWeight: 600 }}>{farmerProfile?.landDetails?.totalArea || 0} Acres</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+                    <span style={{ color: '#6b7280' }}>Irrigation:</span>
+                    <span style={{ fontWeight: 600 }}>{farmerProfile?.landDetails?.irrigationType || 'N/A'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #f0f0f0', paddingBottom: '8px' }}>
+                    <span style={{ color: '#6b7280' }}>Soil Type:</span>
+                    <span style={{ fontWeight: 600 }}>{farmerProfile?.landDetails?.soilType || 'N/A'}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#6b7280' }}>Location:</span>
+                    <span style={{ fontWeight: 600 }}>{farmerProfile?.landDetails?.location || 'Registered Colony'}</span>
+                  </div>
+                </div>
               </Card>
             </Col>
           </Row>
+        );
+      default:
+        return <Empty description="Section under development" />;
+    }
+  };
 
-          <Tabs
-            defaultActiveKey="1"
-            style={{ marginTop: '24px' }}
+  return (
+    <ConfigProvider theme={{ token: { colorPrimary: '#1a5c38', borderRadius: 8 } }}>
+      <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
+        <Sider trigger={null} collapsible collapsed={collapsed} width={260}
+          style={{ background: '#0a2e1f', boxShadow: '4px 0 24px rgba(0,0,0,0.15)', position: 'sticky', top: 0, height: '100vh', zIndex: 100 }}>
+          <div style={{ padding: '20px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            {!collapsed ? (
+              <div style={{ color: '#fff', fontSize: '18px', fontWeight: 900, letterSpacing: '-0.5px' }}>
+                Farmer Portal
+              </div>
+            ) : (
+              <div style={{ color: '#fff', fontSize: '20px', fontWeight: 900, textAlign: 'center', width: '100%' }}>F</div>
+            )}
+          </div>
+
+          <div style={{ padding: '0 24px 16px', display: 'flex', justifyContent: collapsed ? 'center' : 'flex-start' }}>
+            <Button
+              type="text"
+              icon={collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              onClick={() => setCollapsed(!collapsed)}
+              style={{ color: '#fff', fontSize: '18px', background: 'rgba(255,255,255,0.08)' }}
+            />
+          </div>
+
+          <Menu
+            theme="dark"
+            mode="inline"
+            selectedKeys={[activeTab]}
+            onClick={({ key }) => {
+              if (key === 'logout') handleLogout();
+              else setActiveTab(key);
+            }}
+            style={{ background: 'transparent', borderRight: 0 }}
             items={[
-              {
-                key: '1',
-                label: 'Milk Sales Log',
-                children: (
-                  <Card
-                    title="Milk Production & Sales Record"
-                    extra={
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => setIsAddMilkModalVisible(true)}
-                      >
-                        Add Milk Log
-                      </Button>
-                    }
-                  >
-                    <Table
-                      columns={milkColumns}
-                      dataSource={milkLogs}
-                      loading={loading}
-                      rowKey="id"
-                      pagination={{ pageSize: 10 }}
-                    />
-                  </Card>
-                ),
-              },
-              {
-                key: '2',
-                label: 'Infrastructure',
-                children: (
-                  <Card
-                    title="Dairy Infrastructure & Maintenance"
-                    extra={
-                      <Button
-                        type="primary"
-                        icon={<PlusOutlined />}
-                        onClick={() => {
-                          setSelectedInfra(null);
-                          infraForm.resetFields();
-                          setIsAddInfraModalVisible(true);
-                        }}
-                      >
-                        Add Equipment
-                      </Button>
-                    }
-                  >
-                    <Table
-                      columns={infraColumns}
-                      dataSource={infrastructure}
-                      loading={loading}
-                      rowKey="id"
-                      pagination={{ pageSize: 10 }}
-                    />
-                  </Card>
-                ),
-              },
-              {
-                key: '3',
-                label: 'Cattle Details',
-                children: (
-                  <Card
-                    title="Cattle Information & Management"
-                    extra={
-                      <Button
-                        type="primary"
-                        icon={<EditOutlined />}
-                        onClick={() => {
-                          if (farmerProfile?.cattleDetails) {
-                            cattleForm.setFieldsValue(farmerProfile.cattleDetails);
-                          }
-                          setIsCattleModalVisible(true);
-                        }}
-                      >
-                        Update Cattle Details
-                      </Button>
-                    }
-                  >
-                    {farmerProfile?.cattleDetails ? (
-                      <List
-                        dataSource={Object.entries(farmerProfile.cattleDetails)}
-                        renderItem={([key, value]) => (
-                          <List.Item>
-                            <List.Item.Meta
-                              title={key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}
-                              description={typeof value === 'object' ? JSON.stringify(value) : value}
-                            />
-                          </List.Item>
-                        )}
-                      />
-                    ) : (
-                      <p style={{ color: '#999' }}>No cattle details added yet</p>
-                    )}
-                  </Card>
-                ),
-              },
-              {
-                key: '4',
-                label: 'Land Details',
-                children: (
-                  <Card
-                    title="Land & Farm Information"
-                    extra={
-                      <Button
-                        type="primary"
-                        icon={<EditOutlined />}
-                        onClick={() => {
-                          if (farmerProfile?.landDetails) {
-                            landForm.setFieldsValue(farmerProfile.landDetails);
-                          }
-                          setIsLandModalVisible(true);
-                        }}
-                      >
-                        Update Land Details
-                      </Button>
-                    }
-                  >
-                    {farmerProfile?.landDetails ? (
-                      <List
-                        dataSource={Object.entries(farmerProfile.landDetails)}
-                        renderItem={([key, value]) => (
-                          <List.Item>
-                            <List.Item.Meta
-                              title={key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}
-                              description={typeof value === 'object' ? JSON.stringify(value) : value}
-                            />
-                          </List.Item>
-                        )}
-                      />
-                    ) : (
-                      <p style={{ color: '#999' }}>No land details added yet</p>
-                    )}
-                  </Card>
-                ),
-              },
+              { key: 'overview', icon: <DashboardOutlined />, label: 'Farm Overview' },
+              { key: 'logs', icon: <HistoryOutlined />, label: 'Milk Records' },
+              { key: 'infra', icon: <ToolOutlined />, label: 'Infrastructure' },
+              { key: 'profile', icon: <UserOutlined />, label: 'My Managed Profile' },
             ]}
           />
-        </Content>
-        <Footer style={{ textAlign: 'center' }}>Dairy Infra Portal ©2024</Footer>
+
+          <div style={{ position: 'absolute', bottom: 32, left: 24, right: 24 }}>
+            <Button
+              type="link"
+              icon={<LogoutOutlined />}
+              onClick={handleLogout}
+              style={{ color: '#f87171', padding: 0, fontSize: '14px', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '12px' }}
+            >
+              {!collapsed && <span>Logout</span>}
+            </Button>
+          </div>
+        </Sider>
+
+        <Layout>
+          <Header style={{ background: '#fff', padding: '0 40px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', height: '72px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', position: 'sticky', top: 0, zIndex: 99 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div style={{ width: '4px', height: '20px', background: '#1a5c38', borderRadius: '2px' }} />
+              <div style={{ fontSize: '18px', fontWeight: 700, color: '#111827' }}>Dairy Infrastructure Management</div>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+              <Dropdown menu={userProfileMenu} placement="bottomRight" arrow>
+                <Space size={12} style={{ cursor: 'pointer' }}>
+                  <div style={{ textAlign: 'right', lineHeight: 1.2 }}>
+                    <div style={{ fontSize: '14px', fontWeight: 700, color: '#111827' }}>{farmerProfile?.fullName || 'Farmer'}</div>
+                    <div style={{ fontSize: '11px', color: '#1a5c38', fontWeight: 600, textTransform: 'uppercase' }}>{user.farmerId || 'Resource'}</div>
+                  </div>
+                  <Avatar size={44} style={{ backgroundColor: '#1a5c38' }} icon={<UserOutlined />} />
+                </Space>
+              </Dropdown>
+            </div>
+          </Header>
+
+          <Content style={{ padding: '40px', maxWidth: '1400px', margin: '0 auto', width: '100%' }}>
+            {renderContent()}
+          </Content>
+        </Layout>
       </Layout>
-
-      <Modal
-        title="Add Milk Production Log"
-        visible={isAddMilkModalVisible}
-        onCancel={() => setIsAddMilkModalVisible(false)}
-        footer={null}
-      >
-        <Form form={milkForm} onFinish={handleAddMilkLog} layout="vertical">
-          <Form.Item name="logDate" label="Date" rules={[{ required: true }]}>
-            <DatePicker />
-          </Form.Item>
-          <Form.Item name="quantityProduced" label="Quantity Produced (L)" rules={[{ required: true }]}>
-            <InputNumber step={0.1} />
-          </Form.Item>
-          <Form.Item name="quantitySold" label="Quantity Sold (L)" rules={[{ required: true }]}>
-            <InputNumber step={0.1} />
-          </Form.Item>
-          <Form.Item name="pricePerLiter" label="Price Per Liter (₹)" rules={[{ required: true }]}>
-            <InputNumber step={0.1} />
-          </Form.Item>
-          <Form.Item name="remarks" label="Remarks">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Add Log
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title={selectedInfra ? 'Update Infrastructure Maintenance' : 'Add New Equipment'}
-        visible={selectedInfra ? isEditInfraModalVisible : isAddInfraModalVisible}
-        onCancel={() => {
-          if (selectedInfra) {
-            setIsEditInfraModalVisible(false);
-            setSelectedInfra(null);
-          } else {
-            setIsAddInfraModalVisible(false);
-          }
-          infraForm.resetFields();
-        }}
-        footer={null}
-      >
-        <Form
-          form={infraForm}
-          onFinish={selectedInfra ? handleUpdateInfraMaintenance : handleAddInfrastructure}
-          layout="vertical"
-        >
-          {!selectedInfra && (
-            <>
-              <Form.Item name="equipmentName" label="Equipment Name" rules={[{ required: true }]}>
-                <Input />
-              </Form.Item>
-              <Form.Item name="equipmentType" label="Equipment Type" rules={[{ required: true }]}>
-                <Select>
-                  <Select.Option value="COOLER">Cooler</Select.Option>
-                  <Select.Option value="PUMP">Pump</Select.Option>
-                  <Select.Option value="PIPE">Pipe</Select.Option>
-                  <Select.Option value="CONTAINER">Container</Select.Option>
-                  <Select.Option value="OTHER">Other</Select.Option>
-                </Select>
-              </Form.Item>
-              <Form.Item name="purchaseDate" label="Purchase Date">
-                <DatePicker />
-              </Form.Item>
-            </>
-          )}
-          <Form.Item name="condition" label="Condition" rules={[{ required: true }]}>
-            <Select>
-              <Select.Option value="GOOD">Good</Select.Option>
-              <Select.Option value="FAIR">Fair</Select.Option>
-              <Select.Option value="POOR">Poor</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="maintenanceNotes" label="Maintenance Notes">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            {selectedInfra ? 'Update' : 'Add Equipment'}
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Update Cattle Details"
-        visible={isCattleModalVisible}
-        onCancel={() => setIsCattleModalVisible(false)}
-        footer={null}
-      >
-        <Form
-          form={cattleForm}
-          onFinish={handleUpdateCattleDetails}
-          layout="vertical"
-        >
-          <Form.Item name="totalCount" label="Total Count" rules={[{ required: true }]}>
-            <InputNumber min={0} />
-          </Form.Item>
-          <Form.Item name="breed" label="Breed" rules={[{ required: true }]}>
-            <Input placeholder="e.g., Holstein, Jersey, etc." />
-          </Form.Item>
-          <Form.Item name="healthStatus" label="Health Status">
-            <Select>
-              <Select.Option value="HEALTHY">Healthy</Select.Option>
-              <Select.Option value="UNDER_TREATMENT">Under Treatment</Select.Option>
-              <Select.Option value="NEED_CHECKUP">Need Checkup</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="lastVaccineDate" label="Last Vaccine Date">
-            <DatePicker />
-          </Form.Item>
-          <Form.Item name="notes" label="Notes">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Update Cattle Details
-          </Button>
-        </Form>
-      </Modal>
-
-      <Modal
-        title="Update Land Details"
-        visible={isLandModalVisible}
-        onCancel={() => setIsLandModalVisible(false)}
-        footer={null}
-      >
-        <Form
-          form={landForm}
-          onFinish={handleUpdateLandDetails}
-          layout="vertical"
-        >
-          <Form.Item name="totalArea" label="Total Area (acres)" rules={[{ required: true }]}>
-            <InputNumber step={0.1} />
-          </Form.Item>
-          <Form.Item name="location" label="Location / Address">
-            <Input placeholder="Village, District, State" />
-          </Form.Item>
-          <Form.Item name="irrigationType" label="Irrigation Type">
-            <Select>
-              <Select.Option value="RAINFALL">Rainfall</Select.Option>
-              <Select.Option value="WELL">Well</Select.Option>
-              <Select.Option value="CANAL">Canal</Select.Option>
-              <Select.Option value="BOREWELL">Borewell</Select.Option>
-            </Select>
-          </Form.Item>
-          <Form.Item name="soilType" label="Soil Type">
-            <Input placeholder="e.g., Loamy, Clay, Sandy" />
-          </Form.Item>
-          <Form.Item name="cropPattern" label="Crop Pattern">
-            <Input.TextArea rows={2} placeholder="Current crops being grown" />
-          </Form.Item>
-          <Form.Item name="notes" label="Notes">
-            <Input.TextArea rows={3} />
-          </Form.Item>
-          <Button type="primary" htmlType="submit" block>
-            Update Land Details
-          </Button>
-        </Form>
-      </Modal>
-    </Layout>
+    </ConfigProvider>
   );
 };
 

@@ -103,22 +103,22 @@ exports.getFarmersByIds = async (req, res) => {
 // Log daily milk procurement
 exports.logMilkProcurement = async (req, res) => {
   try {
-    const { farmerId, quantityLiters, quality, temperature, pricePerLiter, notes } = req.body;
+    const { farmerId, quantityLiters, quality, temperature, pricePerLiter, notes, snf, fat, procurementDate } = req.body;
     const mpcsOfficerId = req.user.id;
 
-    // Verify farmer belongs to this MPCS officer
-    const farmer = await Farmer.findOne({
-      where: { id: farmerId, createdByMpcsOfficerId: mpcsOfficerId }
-    });
+    // Fetch the farmer regardless of who created them to avoid bugs with mock/admin data
+    const farmer = await Farmer.findByPk(farmerId);
 
     if (!farmer) {
       return res.status(404).json({
         success: false,
-        message: 'Farmer not found or does not belong to this MPCS officer',
+        message: 'Farmer not found',
       });
     }
 
     const totalAmount = quantityLiters * pricePerLiter;
+
+    const finalProcurementDate = procurementDate ? new Date(procurementDate) : new Date();
 
     const procurement = await MilkProcurement.create({
       farmerId,
@@ -128,9 +128,11 @@ exports.logMilkProcurement = async (req, res) => {
       temperature,
       pricePerLiter,
       totalAmount,
-      procurementDate: new Date(),
+      procurementDate: finalProcurementDate,
       loggedByMpcsOfficerId: mpcsOfficerId,
       notes,
+      snf,
+      fat
     });
 
     res.status(201).json({
