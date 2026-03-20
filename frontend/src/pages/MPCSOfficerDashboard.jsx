@@ -48,6 +48,7 @@ const MPCSOfficerDashboard = () => {
   const [infraForm] = Form.useForm();
 
   const [searchQuery, setSearchQuery] = useState('');
+  const [procurementSearch, setProcurementSearch] = useState('');
   const [calculatedPrice, setCalculatedPrice] = useState({ pricePerLiter: 0, totalPrice: 0 });
   const [selectedFarmerForMilk, setSelectedFarmerForMilk] = useState(null);
 
@@ -57,31 +58,11 @@ const MPCSOfficerDashboard = () => {
   const [summary, setSummary] = useState({ totalQuantity: 0, totalAmount: 0, totalTransactions: 0 });
 
   // Mock Dispatch State
-  const [dispatches, setDispatches] = useState(() => {
-    const saved = localStorage.getItem('mpcsDispatches');
-    if (saved) return JSON.parse(saved);
-    return [
-      { id: 'DSP-1001', date: '2026-02-20', quantity: 450, status: 'RECEIVED_AT_DISTRICT' },
-      { id: 'DSP-1002', date: '2026-02-21', quantity: 510, status: 'RECEIVED_AT_DISTRICT' },
-    ];
-  });
-  const [dispatchedAmount, setDispatchedAmount] = useState(() => {
-    const saved = localStorage.getItem('mpcsDispatchedAmount');
-    return saved ? parseFloat(saved) : 0;
-  });
-
+  const [dispatches, setDispatches] = useState([]);  // kept for backward compatibility but not displayed
   const [user, setUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || '{}'));
   const token = sessionStorage.getItem('token') || localStorage.getItem('token');
   const API_URL = 'http://localhost:5000/api';
 
-  useEffect(() => {
-    const storageSync = () => {
-      const savedDispatches = localStorage.getItem('mpcsDispatches');
-      if (savedDispatches) setDispatches(JSON.parse(savedDispatches));
-    };
-    window.addEventListener('storage', storageSync);
-    return () => window.removeEventListener('storage', storageSync);
-  }, []);
 
   useEffect(() => {
     const currentToken = sessionStorage.getItem('token') || localStorage.getItem('token');
@@ -125,7 +106,11 @@ const MPCSOfficerDashboard = () => {
 
   const handleAddFarmer = async (values) => {
     try {
-      await axios.post(`${API_URL}/mpcs-officer/farmers`, values, {
+      const payload = {
+        ...values,
+        dateOfBirth: values.dateOfBirth ? values.dateOfBirth.format('YYYY-MM-DD') : undefined,
+      };
+      await axios.post(`${API_URL}/mpcs-officer/farmers`, payload, {
         headers: { Authorization: `Bearer ${token}` }
       });
       message.success('Farmer registered successfully');
@@ -137,11 +122,12 @@ const MPCSOfficerDashboard = () => {
     }
   };
 
-  const calculatePrice = (snf, fat, quantity) => {
-    // Formula: ((Fat / 100) * 1 * 370) + ((SNF / 100) * 1 * 247)
+  const calculatePrice = (snf, fat, quantity, milkType = 'COW') => {
+    // New formula with mapping for cow/buffalo difference
+    const baseFactor = milkType === 'BUFFALO' ? 1.15 : 1.0;
     const fatPrice = (fat / 100) * 370;
     const snfPrice = (snf / 100) * 247;
-    const pricePerLiter = fatPrice + snfPrice;
+    const pricePerLiter = (fatPrice + snfPrice) * baseFactor;
     const totalPrice = pricePerLiter * (quantity || 0);
     return { pricePerLiter: Math.max(pricePerLiter, 0), totalPrice: Math.max(totalPrice, 0) };
   };
@@ -156,21 +142,34 @@ const MPCSOfficerDashboard = () => {
 
   const handleLogProcurement = async (values) => {
     try {
-      const prices = calculatePrice(values.snf, values.fat, values.quantityLiters);
+      const prices = calculatePrice(values.snf, values.fat, values.quantityLiters, values.milkType);
+
+      const dbDate = values.procurementDate ? values.procurementDate.toDate() : dayjs().toDate();
+      const hour = dbDate.getHours();
+
+      if (values.session === 'Morning' && (hour < 6 || hour > 15)) {
+        return message.error('Morning session logs are allowed between 06:00 and 15:59.');
+      }
+      if (values.session === 'Evening' && !((hour >= 16 && hour <= 23) || (hour >= 0 && hour <= 5))) {
+        return message.error('Evening session logs are allowed between 16:00 and 05:59 next day.');
+      }
+
       await axios.post(`${API_URL}/mpcs-officer/milk-procurement`, {
         farmerId: values.farmerId,
         quantityLiters: values.quantityLiters,
-        quality: values.quality,
+        milkType: values.milkType,
+        session: values.session === 'Morning' ? 'MORNING' : 'EVENING',
         temperature: values.temperature,
         snf: values.snf,
         fat: values.fat,
         pricePerLiter: prices.pricePerLiter,
         totalAmount: prices.totalPrice,
-        procurementDate: values.procurementDate ? values.procurementDate.toISOString() : undefined,
+        procurementDate: dbDate.toISOString(),
         notes: `[Session: ${values.session}] ${values.notes || ''}`
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
+
       message.success('Milk logged successfully');
       milkForm.resetFields();
       setCalculatedPrice({ pricePerLiter: 0, totalPrice: 0 });
@@ -181,14 +180,81 @@ const MPCSOfficerDashboard = () => {
     }
   };
 
+  const handleDispatch = async (record) => {
+    try {
+      await axios.post(`${API_URL}/mpcs-officer/milk-procurement/${record.id}/dispatch`, null, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      message.success('Procurement marked as dispatched');
+      fetchProcurementSummary();
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Error dispatching procurement');
+    }
+  };
+
+  const handleDispatchByType = async (milkType) => {
+    try {
+      const pending = procurements.filter(p => p.milkType === milkType && (p.dispatchStatus === 'PENDING' || p.dispatchStatus === 'WAITING_FOR_VEHICLE' || !p.isDispatched));
+      if (pending.length === 0) {
+        return message.info(`No pending ${milkType.toLowerCase()} records to dispatch`);
+      }
+      
+      await axios.post(`${API_URL}/mpcs-officer/milk-procurement/dispatch-bulk`, { milkType }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      message.success(`Successfully dispatched all pending ${milkType.toLowerCase()} records`);
+      fetchProcurementSummary();
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Error dispatching batch');
+    }
+  };
+
+  const handleAutoDispatchAll = async () => {
+    try {
+      const pending = procurements.filter(p => !p.isDispatched);
+      for (const p of pending) {
+        const hour = dayjs(p.procurementDate).hour();
+        const eligible = (p.session === 'MORNING' && hour >= 10) || (p.session === 'EVENING' && hour >= 20);
+        if (eligible) {
+          await axios.post(`${API_URL}/mpcs-officer/milk-procurement/${p.id}/dispatch`, null, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+      }
+      message.success('Auto-dispatch completed');
+      fetchProcurementSummary();
+    } catch (error) {
+      message.error('Auto-dispatch failed');
+    }
+  };
+
   const openInfraDrawer = (farmer) => {
     setSelectedFarmerForInfra(farmer);
     const existingCattle = farmer.cattleDetails?.list || [];
-    const landDesc = typeof farmer.landDetails === 'object' ? farmer.landDetails?.description : farmer.landDetails;
+    const numberOfCattle = farmer.numberOfCattle || 0;
+    const inferredList = existingCattle.length > 0 ? existingCattle : Array.from({ length: Math.max(numberOfCattle, 1) }, (_, index) => ({
+      tagNumber: `TAG-${1000 + index}`,
+      breed: 'Not specified',
+      lastVaccination: dayjs().format('YYYY-MM-DD')
+    }));
+    
+    // Parse land details whether it's string, missing, or JSON
+    const landArea = farmer.landDetails?.area || '';
+    const landLocation = farmer.landDetails?.location || '';
+    const irrigationType = farmer.landDetails?.irrigationType || 'Rainfed';
+    const landNotes = farmer.landDetails?.description || (typeof farmer.landDetails === 'string' ? farmer.landDetails : '');
+    const cattleHealth = farmer.cattleDetails?.healthStatus || 'Good';
+
     infraForm.setFieldsValue({
       farmSize: farmer.farmSize,
-      cattleList: existingCattle.length > 0 ? existingCattle : [{ tagNumber: `TAG-${Math.floor(1000 + Math.random() * 9000)}`, breed: 'Holstein', lastVaccination: dayjs().format('YYYY-MM-DD') }],
-      landDetails: landDesc || '',
+      villageId: farmer.villageId,
+      cattleList: inferredList,
+      cattleHealth,
+      landArea,
+      landLocation,
+      irrigationType,
+      landDetails: landNotes,
       fullName: farmer.fullName,
       phoneNumber: farmer.phoneNumber
     });
@@ -201,11 +267,19 @@ const MPCSOfficerDashboard = () => {
         fullName: values.fullName,
         phoneNumber: values.phoneNumber,
         farmSize: values.farmSize,
+        villageId: values.villageId,
+        numberOfCattle: values.cattleList?.length || 0,
         cattleDetails: {
           totalCount: values.cattleList?.length || 0,
-          list: values.cattleList || []
+          list: values.cattleList || [],
+          healthStatus: values.cattleHealth
         },
-        landDetails: { description: values.landDetails }
+        landDetails: { 
+          area: values.landArea,
+          location: values.landLocation,
+          irrigationType: values.irrigationType,
+          description: values.landDetails 
+        }
       };
       await axios.patch(`${API_URL}/mpcs-officer/farmers/${selectedFarmerForInfra.id}/details`, payload, {
         headers: { Authorization: `Bearer ${token}` }
@@ -218,30 +292,85 @@ const MPCSOfficerDashboard = () => {
     }
   };
 
-  const handleDispatchBatch = () => {
-    const dispatchableQty = Math.max(0, (summary.totalQuantity || 0) - dispatchedAmount);
-    if (dispatchableQty <= 0) {
-      return message.warning('No fresh milk available for dispatch today.');
+  const handleDispatchBatch = async () => {
+    try {
+      const pendingRecords = procurements.filter(p => p.dispatchStatus === 'PENDING' || p.dispatchStatus === 'WAITING_FOR_VEHICLE');
+      if (pendingRecords.length === 0) {
+        return message.warning('No pending milk records available for dispatch.');
+      }
+
+      let dispatchedCount = 0;
+      let totalDispatchedVolume = 0;
+
+      for (const record of pendingRecords) {
+        await axios.post(`${API_URL}/mpcs-officer/milk-procurement/${record.id}/dispatch`, null, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        dispatchedCount += 1;
+        totalDispatchedVolume += record.quantityLiters;
+      }
+
+      message.success(`Dispatched ${dispatchedCount} record(s) totaling ${totalDispatchedVolume.toFixed(1)} L.`);
+      await fetchProcurementSummary();
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Error dispatching batch');
+    }
+  };
+
+  const printTodayProcurementPDF = () => {
+    const today = dayjs().format('YYYY-MM-DD');
+    const todayRecords = procurements.filter(p => dayjs(p.procurementDate).format('YYYY-MM-DD') === today);
+
+    if (!todayRecords.length) {
+      message.warning('No procurement records for today to print.');
+      return;
     }
 
-    // Simulate dispatching
-    const newDispatch = {
-      id: `DSP-${Math.floor(1000 + Math.random() * 9000)}`,
-      date: dayjs().format('YYYY-MM-DD'),
-      quantity: dispatchableQty,
-      status: 'RECEIVED_AT_DISTRICT'
-    };
+    const headerHtml = `
+      <style>
+        body { font-family: Arial, sans-serif; color: #163f5b; margin: 20px; }
+        h1 { text-align: center; margin-bottom: 24px; }
+        table { border-collapse: collapse; width: 100%; margin-bottom: 16px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background: #f4f6f8; font-weight: 700; }
+      </style>
+    `;
 
-    const newDispatches = [newDispatch, ...dispatches];
-    setDispatches(newDispatches);
-    localStorage.setItem('mpcsDispatches', JSON.stringify(newDispatches));
+    const rows = todayRecords.map((r, idx) => `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${r.farmerFarmerId || r.farmerId || '-'}</td>
+        <td>${r.session || '-'}</td>
+        <td>${r.milkType || '-'}</td>
+        <td>${r.quantityLiters || 0}</td>
+        <td>${dayjs(r.procurementDate).format('DD MMM YYYY HH:mm')}</td>
+        <td>${r.dispatchStatus || (r.isDispatched ? 'DISPATCHED' : 'PENDING')}</td>
+      </tr>
+    `).join('');
 
-    message.success(`Batch ${newDispatch.id} sent: ${dispatchableQty.toFixed(1)} L to District Factory`);
+    const html = `
+      <html><head><title>Today's Procurement Report</title>${headerHtml}</head><body>
+        <h1>Today's Procurement Report (${today})</h1>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Farmer ID</th><th>Session</th><th>Milk Type</th><th>Quantity (L)</th><th>Date</th><th>Status</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </body></html>
+    `;
 
-    // Update local dispatched amount
-    const newQuantity = summary.totalQuantity;
-    setDispatchedAmount(newQuantity);
-    localStorage.setItem('mpcsDispatchedAmount', newQuantity.toString());
+    const newWindow = window.open('', '_blank');
+    if (!newWindow) {
+      message.error('Unable to open print window.');
+      return;
+    }
+
+    newWindow.document.write(html);
+    newWindow.document.close();
+    newWindow.focus();
+    newWindow.print();
+    newWindow.close();
   };
 
   const handleLogout = () => {
@@ -274,41 +403,42 @@ const MPCSOfficerDashboard = () => {
                 <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#111827', margin: 0 }}>MPCS Daily Overview</h1>
                 <p style={{ color: '#6b7280', fontSize: '15px', marginTop: '4px' }}>Monitoring farmer logs, procurement summary, and session health.</p>
               </div>
-              <Button icon={<BarChartOutlined />} type="default">Print Daily Report</Button>
+              <Button icon={<BarChartOutlined />} type="default" onClick={printTodayProcurementPDF}>Print Today's Procurement PDF</Button>
             </div>
 
             <Row gutter={[24, 24]} style={{ marginBottom: '40px' }}>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="REGISTERED FARMERS" value={farmers.length} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} prefix={<TeamOutlined style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="plain" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="REGISTERED FARMERS" value={farmers.length} styles={{ content: { color: '#1a5c38', fontWeight: 800 } }} prefix={<TeamOutlined style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="MILK PROCURED (L)" value={summary.totalQuantity?.toFixed(1) || 0} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} prefix={<ExperimentOutlined style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="plain" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="MILK PROCURED (L)" value={summary.totalQuantity?.toFixed(1) || 0} styles={{ content: { color: '#1a5c38', fontWeight: 800 } }} prefix={<ExperimentOutlined style={{ background: '#f0fdf4', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="TOTAL PAYOUT (₹)" value={summary.totalAmount?.toFixed(2) || 0} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} />
+                <Card variant="plain" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TOTAL PAYOUT (₹)" value={summary.totalAmount?.toFixed(2) || 0} styles={{ content: { color: '#1a5c38', fontWeight: 800 } }} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="TRANSACTIONS" value={summary.totalTransactions || 0} valueStyle={{ color: '#1a5c38', fontWeight: 800 }} />
+                <Card variant="plain" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TRANSACTIONS" value={summary.totalTransactions || 0} styles={{ content: { color: '#1a5c38', fontWeight: 800 } }} />
                 </Card>
               </Col>
             </Row>
 
             <Row gutter={[24, 24]}>
               <Col xs={24} lg={14}>
-                <Card title={<span style={{ fontWeight: 700 }}>Recent Procurements</span>} bordered={false} style={{ borderRadius: '16px', minHeight: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                <Card variant="plain" title={<span style={{ fontWeight: 700 }}>Recent Procurements</span>} style={{ borderRadius: '16px', minHeight: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
                   <Table
                     columns={[
                       { title: 'FARMER ID', dataIndex: 'farmerFarmerId', key: 'farmerFarmerId', render: t => <span style={{ fontWeight: 600 }}>{t}</span> },
-                      { title: 'SESSION', key: 'session', render: (_, r) => <Tag color="purple">{(r.notes?.match(/\[Session: (.*?)\]/) || [])[1] || 'MORNING'}</Tag> },
+                      { title: 'SESSION', key: 'session', render: (_, r) => <Tag color="purple">{r.session || 'MORNING'}</Tag> },
                       { title: 'QTY (L)', dataIndex: 'quantityLiters', key: 'quantityLiters' },
-                      { title: 'QUALITY', dataIndex: 'quality', key: 'quality', render: t => <Tag color="blue">{t}</Tag> },
+                      { title: 'TYPE', dataIndex: 'milkType', key: 'milkType', render: t => <Tag color="blue">{t}</Tag> },
+                      { title: 'DISPATCH', dataIndex: 'isDispatched', key: 'isDispatched', render: v => <Tag color={v ? 'green' : 'orange'}>{v ? 'DISPATCHED' : 'PENDING'}</Tag> },
                       { title: 'DATE', dataIndex: 'procurementDate', key: 'procurementDate', render: t => dayjs(t).format('DD-MM-YY HH:mm') }
                     ]}
                     dataSource={procurements.slice(0, 5)}
@@ -318,14 +448,13 @@ const MPCSOfficerDashboard = () => {
                 </Card>
               </Col>
               <Col xs={24} lg={10}>
-                <Card title={<span style={{ fontWeight: 700 }}>Quality Breakdown</span>} bordered={false} style={{ borderRadius: '16px', minHeight: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                <Card variant="plain" title={<span style={{ fontWeight: 700 }}>Milk Type Breakdown</span>} style={{ borderRadius: '16px', minHeight: '400px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
                   <ResponsiveContainer width="100%" height={250}>
                     <PieChart>
                       <Pie
                         data={[
-                          { name: 'Premium (A)', value: 65 },
-                          { name: 'Standard (B)', value: 25 },
-                          { name: 'Basic (C)', value: 10 },
+                          { name: 'Cow', value: summary.typeCounts?.COW || 0 },
+                          { name: 'Buffalo', value: summary.typeCounts?.BUFFALO || 0 },
                         ]}
                         innerRadius={50}
                         outerRadius={80}
@@ -355,7 +484,7 @@ const MPCSOfficerDashboard = () => {
                 <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsAddFarmerModalVisible(true)}>Register Farmer</Button>
               </Space>
             }
-            bordered={false}
+            variant="plain"
             style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
           >
             <Table
@@ -365,7 +494,7 @@ const MPCSOfficerDashboard = () => {
                 { title: 'CONTACT', dataIndex: 'phoneNumber', key: 'phoneNumber' },
                 {
                   title: 'CATTLE', key: 'cattle', render: (_, record) => {
-                    const count = record.cattleDetails?.list?.length || 0;
+                    const count = record.cattleDetails?.list?.length || record.numberOfCattle || 0;
                     return <Tag color="orange">{count} Head</Tag>;
                   }
                 },
@@ -388,21 +517,40 @@ const MPCSOfficerDashboard = () => {
         return (
           <Card
             title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Daily Milk Procurement Log</span>}
-            extra={<Button type="primary" icon={<ExperimentOutlined />} onClick={() => setIsLogMilkModalVisible(true)}>Log New Milk Session</Button>}
-            bordered={false}
+            extra={<Space>
+              <Search placeholder="Search farmer / type / session" allowClear onSearch={v => setProcurementSearch(v)} style={{ width: 240 }} />
+              <Button type="primary" icon={<ExperimentOutlined />} onClick={() => setIsLogMilkModalVisible(true)}>Log New Milk Session</Button>
+            </Space>}
+            variant="plain"
             style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
           >
             <Table
               columns={[
                 { title: 'FARMER ID', dataIndex: 'farmerFarmerId', key: 'farmerFarmerId' },
-                { title: 'SESSION', key: 'session', render: (_, r) => <Tag color="purple">{(r.notes?.match(/\[Session: (.*?)\]/) || [])[1] || 'MORNING'}</Tag> },
+                { title: 'SESSION', key: 'session', render: (_, r) => <Tag color="purple">{r.session || 'MORNING'}</Tag> },
+                { title: 'TYPE', dataIndex: 'milkType', key: 'milkType', render: t => <Tag color="cyan">{t}</Tag> },
                 { title: 'NET QTY', dataIndex: 'quantityLiters', key: 'quantityLiters', render: v => <span style={{ fontWeight: 700 }}>{v} L</span> },
+                { title: 'DISPATCH', dataIndex: 'isDispatched', key: 'isDispatched', render: v => <Tag color={v ? 'green' : 'orange'}>{v ? 'DISPATCHED' : 'PENDING'}</Tag> },
                 { title: 'SNF / FAT', key: 'snffat', render: (_, r) => <span>{r.snf || '-'}% / {r.fat || '-'}%</span> },
                 { title: 'PRICE/L', dataIndex: 'pricePerLiter', key: 'pricePerLiter', render: v => `₹${v.toFixed(2)}` },
                 { title: 'TOTAL', dataIndex: 'totalAmount', key: 'totalAmount', render: v => <span style={{ color: '#1a5c38', fontWeight: 700 }}>₹{v.toFixed(2)}</span> },
-                { title: 'LOG DATE', dataIndex: 'procurementDate', key: 'procurementDate', render: t => dayjs(t).format('MMM DD, YYYY HH:mm') }
+                { title: 'LOG DATE', dataIndex: 'procurementDate', key: 'procurementDate', render: t => dayjs(t).format('MMM DD, YYYY HH:mm') },
+                { title: 'DISPATCH STATUS', dataIndex: 'dispatchStatus', key: 'dispatchStatus', render: t => {
+                  let color = 'orange';
+                  if (t === 'WAITING_FOR_VEHICLE') color = 'gold';
+                  if (t === 'EN_ROUTE_TO_DISTRICT') color = 'geekblue';
+                  if (t === 'REACHED_DISTRICT') color = 'success';
+                  return <Tag color={color}>{t?.replace(/_/g, ' ') || 'PENDING'}</Tag>;
+                }}
               ]}
-              dataSource={procurements}
+              dataSource={procurements.filter(p => {
+                const q = procurementSearch.trim().toLowerCase();
+                if (!q) return true;
+                return (p.farmerFarmerId || '').toLowerCase().includes(q) ||
+                  (p.milkType || '').toLowerCase().includes(q) ||
+                  ((p.notes || '').toLowerCase().includes(q) ||
+                  ((p.isDispatched ? 'dispatched' : 'pending').includes(q)));
+              })}
               rowKey="id"
               loading={loading}
             />
@@ -412,7 +560,7 @@ const MPCSOfficerDashboard = () => {
         return (
           <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
             <Card
-              bordered={false}
+              variant="plain"
               style={{ borderRadius: '16px', marginBottom: '24px', background: 'linear-gradient(135deg, #1a5c38 0%, #0a2e1f 100%)', color: '#fff' }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
@@ -422,45 +570,56 @@ const MPCSOfficerDashboard = () => {
                 </div>
                 <div style={{ textAlign: 'right' }}>
                   <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8 }}>Ready for Dispatch</div>
-                  <div style={{ fontSize: '36px', fontWeight: 800 }}>{Math.max(0, (summary.totalQuantity || 0) - dispatchedAmount).toFixed(1)} L</div>
+                  <div style={{ fontSize: '36px', fontWeight: 800 }}>{Math.max(0, (summary.totalQuantity || 0) - (summary.dispatchedQuantity || 0)).toFixed(1)} L</div>
                   <div style={{ fontSize: '12px', marginTop: '4px', opacity: 0.9 }}>Total Daily Collected: {summary.totalQuantity?.toFixed(1) || 0} L</div>
-                  <div style={{ fontSize: '12px', opacity: 0.9 }}>Total Dispatched: {dispatchedAmount?.toFixed(1) || 0} L</div>
+                  <div style={{ fontSize: '12px', opacity: 0.9 }}>Total Dispatched: {(summary.dispatchedQuantity || 0).toFixed(1)} L</div>
                 </div>
               </div>
 
               <Divider style={{ borderColor: 'rgba(255,255,255,0.2)' }} />
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  size="large"
-                  icon={<CarOutlined />}
-                  onClick={handleDispatchBatch}
-                  style={{ background: '#fff', color: '#1a5c38', border: 'none', fontWeight: 700, borderRadius: '8px' }}
-                >
-                  Confirm Dispatch Batch Now
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
+                <Button size="large" type="default" onClick={() => handleDispatchByType('COW')} style={{ borderRadius: '8px' }}>
+                  Dispatch Cow Milk
+                </Button>
+                <Button size="large" type="default" onClick={() => handleDispatchByType('BUFFALO')} style={{ borderRadius: '8px' }}>
+                  Dispatch Buffalo Milk
                 </Button>
               </div>
             </Card>
 
-            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#111827', margin: '0 0 16px 0' }}>Recent Dispatches</h3>
+            <h3 style={{ fontSize: '18px', fontWeight: 800, color: '#111827', margin: '0 0 12px 0' }}>Active Procurement Dispatch Status</h3>
             <Table
               columns={[
-                { title: 'DISPATCH ID', dataIndex: 'id', key: 'id', render: t => <span style={{ fontWeight: 600 }}>{t}</span> },
-                { title: 'DATE', dataIndex: 'date', key: 'date' },
-                { title: 'VOLUME (L)', dataIndex: 'quantity', key: 'quantity', render: v => <span>{v} L</span> },
-                { title: 'LOGISTICS STATUS', dataIndex: 'status', key: 'status', render: s => <Tag color={s === 'EN_ROUTE_TO_DISTRICT' ? 'processing' : 'success'}>{s.replace(/_/g, ' ')}</Tag> }
+                { title: 'FARMER ID', dataIndex: 'farmerFarmerId', key: 'farmerFarmerId' },
+                { title: 'TYPE', dataIndex: 'milkType', key: 'milkType', render: t => <Tag color={t === 'BUFFALO' ? 'blue' : 'green'}>{t}</Tag> },
+                { title: 'SESSION', dataIndex: 'session', key: 'session', render: t => <Tag color="purple">{t}</Tag> },
+                { title: 'QTY', dataIndex: 'quantityLiters', key: 'quantityLiters', render: v => <span>{v} L</span> },
+                { title: 'PROCUREMENT DATE', dataIndex: 'procurementDate', key: 'procurementDate', render: d => dayjs(d).format('DD MMM YYYY HH:mm') },
+                { title: 'TRIP ID', dataIndex: 'assignedTripId', key: 'assignedTripId', render: v => v ? <Tag color='geekblue'>{v}</Tag> : <span>-</span> },
+                { title: 'DRIVER ID', dataIndex: 'assignedDriverId', key: 'assignedDriverId', render: v => v ? <Tag color='purple'>{v}</Tag> : <span>-</span> },
+                { title: 'VEHICLE ID', dataIndex: 'assignedVehicleId', key: 'assignedVehicleId', render: v => v ? <Tag color='cyan'>{v}</Tag> : <span>-</span> },
+                { title: 'LOGISTICS STATUS', dataIndex: 'dispatchStatus', key: 'dispatchStatus', render: t => {
+                  let color = 'default';
+                  if (t === 'PENDING') color = 'orange';
+                  if (t === 'WAITING_FOR_VEHICLE') color = 'gold';
+                  if (t === 'EN_ROUTE_TO_DISTRICT') color = 'geekblue';
+                  if (t === 'REACHED_DISTRICT') color = 'success';
+                  return <Tag color={color}>{t?.replace(/_/g, ' ') || 'PENDING'}</Tag>;
+                }}
               ]}
-              dataSource={dispatches}
+              dataSource={procurements}
+              pagination={{ pageSize: 10 }}
               rowKey="id"
-              pagination={false}
-              bordered={false}
+              loading={loading}
             />
+
           </div>
         );
       case 'profile':
         return (
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-            <Card bordered={false} style={{ borderRadius: '16px', overflow: 'hidden' }}>
+            <Card variant="plain" style={{ borderRadius: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#1a5c38', height: '120px', margin: '-24px -24px 0 -24px' }} />
               <div style={{ marginTop: '-60px', textAlign: 'center', position: 'relative' }}>
                 <Avatar size={120} style={{ border: '4px solid #fff', backgroundColor: '#e5e7eb' }} icon={<UserOutlined />} />
@@ -562,7 +721,8 @@ const MPCSOfficerDashboard = () => {
               <Col span={12}><Form.Item name="fullName" label="Full Name" rules={[{ required: true }]}><Input /></Form.Item></Col>
               <Col span={12}><Form.Item name="phoneNumber" label="Phone"><Input /></Form.Item></Col>
               <Col span={24}><Form.Item name="email" label="Email Address"><Input /></Form.Item></Col>
-              <Col span={8}><Form.Item name="villageId" label="Village ID"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+              <Col span={12}><Form.Item name="dateOfBirth" label="Date of Birth"><DatePicker style={{ width: '100%' }} format="YYYY-MM-DD" /></Form.Item></Col>
+              <Col span={12}><Form.Item name="villageId" label="Village ID"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
               <Col span={8}><Form.Item name="farmSize" label="Farm Size (Acres)"><InputNumber step={0.1} style={{ width: '100%' }} /></Form.Item></Col>
               <Col span={8}><Form.Item name="numberOfCattle" label="Cattle Count"><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
             </Row>
@@ -606,11 +766,10 @@ const MPCSOfficerDashboard = () => {
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item name="quality" label="Quality Grade" rules={[{ required: true }]} initialValue="A">
+                <Form.Item name="milkType" label="Milk Type" rules={[{ required: true }]} initialValue="COW">
                   <Select>
-                    <Option value="A">Premium - Grade A</Option>
-                    <Option value="B">Standard - Grade B</Option>
-                    <Option value="C">Basic - Grade C</Option>
+                    <Option value="COW">Cow</Option>
+                    <Option value="BUFFALO">Buffalo</Option>
                   </Select>
                 </Form.Item>
               </Col>
@@ -636,7 +795,7 @@ const MPCSOfficerDashboard = () => {
         {/* --- Drawer for Infra Update --- */}
         <Drawer
           title={<span style={{ fontWeight: 800 }}>Update Farmer Infrastructure</span>}
-          width={450}
+          size={450}
           onClose={() => setIsInfraDrawerVisible(false)}
           open={isInfraDrawerVisible}
           extra={<Space><Button onClick={() => setIsInfraDrawerVisible(false)}>Cancel</Button><Button type="primary" onClick={() => infraForm.submit()} style={{ background: '#1a5c38' }}>Save Changes</Button></Space>}
@@ -660,14 +819,45 @@ const MPCSOfficerDashboard = () => {
 
               <Row gutter={16}>
                 <Col span={12}>
+                  <Form.Item name="villageId" label="Village ID">
+                    <InputNumber style={{ width: '100%' }} />
+                  </Form.Item>
+                </Col>
+                <Col span={12}>
                   <Form.Item name="farmSize" label="Farm Size (Acres)">
                     <InputNumber step={0.1} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
               </Row>
 
+              <Row gutter={16}>
+                <Col span={8}>
+                  <Form.Item name="landArea" label="Land Area">
+                    <Input placeholder="e.g. 5.5 acres" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="landLocation" label="Location">
+                    <Input placeholder="Village Zone" />
+                  </Form.Item>
+                </Col>
+                <Col span={8}>
+                  <Form.Item name="irrigationType" label="Irrigation">
+                    <Select>
+                      <Option value="Borewell">Borewell</Option>
+                      <Option value="Canal">Canal</Option>
+                      <Option value="Rainfed">Rainfed</Option>
+                    </Select>
+                  </Form.Item>
+                </Col>
+              </Row>
+
               <Divider dashed />
               <h4 style={{ fontWeight: 700, marginBottom: '16px' }}>Cattle Herd Tracking</h4>
+              
+              <Form.Item name="cattleHealth" label="Overall Health Status">
+                <Input placeholder="Excellent, Good, Monitor" />
+              </Form.Item>
 
               <Form.List name="cattleList">
                 {(fields, { add, remove }) => (

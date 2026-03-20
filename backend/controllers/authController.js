@@ -93,16 +93,45 @@ exports.login = async (req, res) => {
             { expiresIn: '24h' }
         );
 
+        const userResponse = {
+            id: user.id,
+            fullName: user.fullName,
+            email: user.email,
+            role: user.role,
+            organizationName: user.organizationName,
+        };
+
+        // Enrich with hierarchy-specific IDs based on role
+        if (user.role === 'DISTRICT_MANAGER') {
+            const DistrictManager = require('../models/DistrictManager');
+            const dm = await DistrictManager.findOne({ where: { email: user.email } });
+            if (dm) userResponse.dmId = dm.dmId;
+        } else if (user.role === 'TRANSPORT_MANAGER') {
+            const TransportManager = require('../models/TransportManager');
+            const tm = await TransportManager.findOne({ where: { email: user.email } });
+            if (tm) userResponse.tmId = tm.tmId;
+        } else if (user.role === 'SUPERVISOR') {
+            const Supervisor = require('../models/Supervisor');
+            const sup = await Supervisor.findOne({ where: { email: user.email } });
+            if (sup) userResponse.supId = sup.supId;
+        } else if (user.role === 'OPERATOR') {
+            const Operator = require('../models/Operator');
+            const op = await Operator.findOne({ where: { email: user.email } });
+            if (op) userResponse.opId = op.opId;
+        } else if (user.role === 'MPCS_OFFICER') {
+            const MPCSofficer = require('../models/MPCSofficer');
+            const mpcs = await MPCSofficer.findOne({ where: { email: user.email } });
+            if (mpcs) userResponse.mpcsId = mpcs.mpcsId;
+        } else if (user.role === 'DRIVER') {
+            const Driver = require('../models/Driver');
+            const drv = await Driver.findOne({ where: { email: user.email } });
+            if (drv) userResponse.driverId = drv.driverId;
+        }
+
         return res.status(200).json({
             message: 'Login successful',
             token,
-            user: {
-                id: user.id,
-                fullName: user.fullName,
-                email: user.email,
-                role: user.role,
-                organizationName: user.organizationName,
-            },
+            user: userResponse,
         });
     } catch (error) {
         console.error('Login error:', error);

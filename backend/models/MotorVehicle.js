@@ -9,6 +9,11 @@ const MotorVehicle = sequelize.define(
       autoIncrement: true,
       primaryKey: true,
     },
+    dmId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Reference to District Manager'
+    },
     vehicleId: {
       type: DataTypes.STRING,
       allowNull: false,

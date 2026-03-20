@@ -53,7 +53,8 @@ async function resetAndPopulate() {
                 farmerId: f.id,
                 farmerFarmerId: f.farmerId,
                 quantityLiters: 500,
-                quality: 'A',
+                milkType: 'COW',
+                session: 'MORNING',
                 temperature: 4.5,
                 pricePerLiter: 37.5,
                 totalAmount: 500 * 37.5,
@@ -61,7 +62,9 @@ async function resetAndPopulate() {
                 loggedByMpcsOfficerId: o.id,
                 notes: 'Initial Demo Log',
                 snf: 8.5,
-                fat: 4.5
+                fat: 4.5,
+                isDispatched: true,
+                dispatchedAt: new Date()
             });
             console.log(`Successfully logged 500L for farmer ${f.fullName}`);
         }

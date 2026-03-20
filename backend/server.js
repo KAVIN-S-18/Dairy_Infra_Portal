@@ -21,6 +21,9 @@ const TransportManager = require('./models/TransportManager');
 const Driver = require('./models/Driver');
 const MotorVehicle = require('./models/MotorVehicle');
 const Trip = require('./models/Trip');
+const Machine = require('./models/Machine');
+const ChillerTank = require('./models/ChillerTank');
+const DeliveryRequest = require('./models/DeliveryRequest');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const adminRoutes = require('./routes/adminRoutes');
@@ -29,12 +32,24 @@ const mpcsOfficerRoutes = require('./routes/mpcsOfficerRoutes');
 const supervisorRoutes = require('./routes/supervisorRoutes');
 const operatorRoutes = require('./routes/operatorRoutes');
 const farmerRoutes = require('./routes/farmerRoutes');
+const transportManagerRoutes = require('./routes/transportManagerRoutes');
+const driverRoutes = require('./routes/driverRoutes');
 
 dotenv.config();
 
+const path = require('path');
+const fs = require('fs');
+
 const app = express();
+
+const uploadDir = 'uploads';
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
+
 app.use(cors());
 app.use(express.json());
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -45,6 +60,8 @@ app.use('/api/mpcs-officer', mpcsOfficerRoutes);
 app.use('/api/supervisor', supervisorRoutes);
 app.use('/api/operator', operatorRoutes);
 app.use('/api/farmer', farmerRoutes);
+app.use('/api/tm', transportManagerRoutes);
+app.use('/api/driver', driverRoutes);
 
 /**
  * 🔐 Auto-create Super Admin
@@ -82,9 +99,9 @@ const createSuperAdmin = async () => {
     await sequelize.authenticate();
     console.log('✅ MySQL connected');
 
-    // 2️⃣ Hibernate-style schema update
-    await sequelize.sync({ force: false, alter: false });
-    console.log('✅ Tables synced');
+    // 2️⃣ Hibernate-style schema update (auto-add missing columns without dropping data)
+    await sequelize.sync({ force: false, alter: true });
+    console.log('✅ Tables synced (with alter)');
 
     // 3️⃣ Ensure Super Admin
     await createSuperAdmin();

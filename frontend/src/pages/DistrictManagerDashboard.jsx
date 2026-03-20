@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
   Layout, Table, Button, Space, Card, Statistic, Row, Col,
-  Tag, message, Menu, Avatar, Dropdown, ConfigProvider, Empty, Divider, Modal, Form, Input, Popconfirm, Select, DatePicker, Tabs, InputNumber, Steps
+  Tag, message, Menu, Avatar, Dropdown, ConfigProvider, Empty, Divider, Modal, Form, Input, Popconfirm, Select, DatePicker, Tabs, InputNumber, Steps, Upload
 } from 'antd';
 import {
   LogoutOutlined,
@@ -18,7 +18,10 @@ import {
   PlusOutlined,
   DeleteOutlined,
   MenuUnfoldOutlined,
-  ExperimentOutlined
+  ExperimentOutlined,
+  ShoppingOutlined,
+  UploadOutlined,
+  EditOutlined
 } from "@ant-design/icons";
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -43,12 +46,22 @@ const DistrictManagerDashboard = () => {
   const [batchForm] = Form.useForm();
   const [districtBatches, setDistrictBatches] = useState([]);
   const [busySupervisors, setBusySupervisors] = useState({}); // { supervisorId: true }
+  const [isEditMachineModalVisible, setIsEditMachineModalVisible] = useState(false);
+  const [selectedMachine, setSelectedMachine] = useState(null);
+  const [editMachineForm] = Form.useForm();
+  const [uploadedImageUrl, setUploadedImageUrl] = useState('');
   const [isNextStageModalVisible, setIsNextStageModalVisible] = useState(false);
   const [selectedBatchId, setSelectedBatchId] = useState(null);
   const [nextStageForm] = Form.useForm();
   const [machineData, setMachineData] = useState([]);
   const [machineSearch, setMachineSearch] = useState('');
   const [machineStatusFilter, setMachineStatusFilter] = useState('ALL');
+  
+  const [chillerTanks, setChillerTanks] = useState([]);
+  const [isTankModalVisible, setIsTankModalVisible] = useState(false);
+  const [tankForm] = Form.useForm();
+  const [isMachineModalVisible, setIsMachineModalVisible] = useState(false);
+  const [machineForm] = Form.useForm();
 
   const defaultMachines = [
     { id: 'MCH-001', name: 'Industrial Chiller Unit A', type: 'CHILLING', status: 'IDLE', batch: null, progress: 0, image: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=400' },
@@ -62,6 +75,8 @@ const DistrictManagerDashboard = () => {
   const [operators, setOperators] = useState([]);
   const [mpcsOfficers, setMpcsOfficers] = useState([]);
   const [transportManagers, setTransportManagers] = useState([]);
+  const [drivers, setDrivers] = useState([]);
+  const [vehicles, setVehicles] = useState([]);
 
   // Mock Live Tracking Operations state
   const [ongoingProcesses, setOngoingProcesses] = useState([
@@ -86,40 +101,33 @@ const DistrictManagerDashboard = () => {
     return () => window.removeEventListener('storage', syncUser);
   }, []);
 
+  const [messageApi, contextHolder] = message.useMessage();
+
   useEffect(() => {
     if (!token || user.role !== 'DISTRICT_MANAGER') {
       navigate('/login');
       return;
     }
+  }, [token, user, navigate]);
+
+  const fetchDispatches = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/hierarchy/logistics-log`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data.success) {
+        setDistrictDispatches(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch dispatches', error);
+    }
+  };
+
+  useEffect(() => {
     fetchStaff();
-    fetchTransportManagers();
-
-    const savedMachines = localStorage.getItem('districtMachines');
-    if (savedMachines) {
-      setMachineData(JSON.parse(savedMachines));
-    } else {
-      setMachineData(defaultMachines);
-      localStorage.setItem('districtMachines', JSON.stringify(defaultMachines));
-    }
-
-    const savedDispatches = localStorage.getItem('mpcsDispatches');
-    if (savedDispatches) {
-      setDistrictDispatches(JSON.parse(savedDispatches));
-    } else {
-      setDistrictDispatches([
-        { id: 'DSP-1001', date: dayjs().subtract(1, 'day').format('YYYY-MM-DD'), quantity: 450, status: 'EN_ROUTE_TO_DISTRICT' },
-      ]);
-    }
-
-    const savedChiller = localStorage.getItem('districtChillerVolume');
-    if (savedChiller) {
-      setChillerVolume(parseFloat(savedChiller));
-    }
-
-    const savedBatches = localStorage.getItem('districtBatches');
-    if (savedBatches) {
-      setDistrictBatches(JSON.parse(savedBatches));
-    }
+    fetchChillerTanks();
+    fetchMachines();
+    fetchDispatches();
 
     const syncData = () => {
       const d = localStorage.getItem('mpcsDispatches');
@@ -171,19 +179,179 @@ const DistrictManagerDashboard = () => {
       setSupervisors(response.data.supervisors || []);
       setOperators(response.data.operators || []);
       setMpcsOfficers(response.data.mpcsOfficers || []);
+      setTransportManagers(response.data.transportManagers || []);
+      console.log('TMs fetched:', response.data.transportManagers);
+      setDrivers(response.data.drivers || []);
+      setVehicles(response.data.vehicles || []);
     } catch (error) {
-      // Mock Data if API fails initially
+      console.error('Failed to fetch staff', error);
+      messageApi.error('Failed to fetch personnel data');
     }
   };
 
-  const fetchTransportManagers = async () => {
+  const fetchChillerTanks = async () => {
     try {
-      const response = await axios.get(
-        `${API_URL}/hierarchy/district-managers/${user.dmId}/transport-managers`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      setTransportManagers(response.data || []);
-    } catch (error) { }
+      const response = await axios.get(`${API_URL}/hierarchy/chiller-tanks`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+        if (response.data?.success) {
+          setChillerTanks(response.data.data);
+          const total = response.data.data.reduce((sum, t) => sum + (t.currentLevel || 0), 0);
+          setChillerVolume(total);
+        } else {
+          setChillerTanks(Array.isArray(response.data) ? response.data : []);
+          const total = (Array.isArray(response.data) ? response.data : []).reduce((sum, t) => sum + (t.currentLevel || 0), 0);
+          setChillerVolume(total);
+        }
+    } catch (error) {
+        console.error('Failed to fetch tanks', error);
+    }
+  };
+
+  const handleAddTank = async (values) => {
+    try {
+        await axios.post(`${API_URL}/hierarchy/chiller-tanks`, values, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        message.success('Chiller Tank added successfully');
+        setIsTankModalVisible(false);
+        tankForm.resetFields();
+        fetchChillerTanks();
+    } catch (error) {
+        message.error('Failed to add tank');
+    }
+  };
+
+  const handleDeleteTank = async (id) => {
+    try {
+        await axios.delete(`${API_URL}/hierarchy/chiller-tanks/${id}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        message.success('Tank decommissioned successfully');
+        fetchChillerTanks();
+    } catch (error) {
+        message.error('Failed to delete tank');
+    }
+  };
+
+  const handleRequestDelivery = async (batch) => {
+    try {
+        const response = await axios.post(`${API_URL}/hierarchy/delivery-requests`, {
+            batchId: batch.id,
+            quantity: batch.quantity || 1000,
+            destination: 'MAIN_CITY_RETAIL'
+        }, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        if (response.data.success) {
+            message.success('Delivery request sent to Transport Manager');
+            // Update local batches state
+            const updated = districtBatches.map(b => b.id === batch.id ? { ...b, status: 'AWAITING_DELIVERY' } : b);
+            setDistrictBatches(updated);
+            localStorage.setItem('districtBatches', JSON.stringify(updated));
+        }
+    } catch (err) {
+        message.error('Failed to initiate delivery');
+    }
+  };
+
+  const handleAddMachine = async (values) => {
+    try {
+      const payload = { ...values, imageUrl: uploadedImageUrl || values.imageUrl };
+      await axios.post(`${API_URL}/hierarchy/machines`, payload, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      message.success('Machine added to factory floor');
+      setIsMachineModalVisible(false);
+      machineForm.resetFields();
+      setUploadedImageUrl('');
+      fetchMachines();
+    } catch (error) {
+      message.error('Failed to create machine');
+    }
+  };
+
+  const handleUpdateMachine = async (values) => {
+    try {
+        const payload = { ...values, imageUrl: uploadedImageUrl || values.imageUrl };
+        await axios.patch(`${API_URL}/hierarchy/machines/${selectedMachine.id}`, payload, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        message.success('Machine details updated');
+        setIsEditMachineModalVisible(false);
+        setUploadedImageUrl('');
+        fetchMachines();
+    } catch (error) {
+        message.error('Failed to update machine');
+    }
+  };
+
+  const handleEditMachine = (machine) => {
+    setSelectedMachine(machine);
+    editMachineForm.setFieldsValue({
+        ...machine,
+        lastMaintenanceDate: machine.lastMaintenanceDate ? dayjs(machine.lastMaintenanceDate) : null
+    });
+    setIsEditMachineModalVisible(true);
+  };
+
+  const handleToggleMaintenance = async (machine) => {
+    try {
+      const newStatus = machine.status === 'MAINTENANCE' ? 'IDLE' : 'MAINTENANCE';
+      await axios.patch(`${API_URL}/hierarchy/machines/${machine.id}`, { status: newStatus }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      message.success(`Machine status updated to ${newStatus}`);
+      fetchMachines();
+    } catch (error) {
+      message.error('Failed to update machine status');
+    }
+  };
+
+  const handleUpload = async ({ file, onSuccess, onError }) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    try {
+      const response = await axios.post(`${API_URL}/hierarchy/upload`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (response.data.success) {
+        setUploadedImageUrl(response.data.url);
+        onSuccess();
+        message.success('Image uploaded successfully');
+      }
+    } catch (err) {
+      onError(err);
+      message.error('Upload failed');
+    }
+  };
+
+  const fetchMachines = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/hierarchy/machines`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data?.success) {
+        setMachineData(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to fetch machines', error);
+    }
+  };
+
+  const handleDeleteMachine = async (id) => {
+    try {
+      await axios.delete(`${API_URL}/hierarchy/machines/${id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      message.success('Machine decommissioned');
+      fetchMachines();
+    } catch (error) {
+      messageApi.error('Failed to decommission machine');
+    }
   };
 
   const handleLogout = () => {
@@ -207,23 +375,37 @@ const DistrictManagerDashboard = () => {
         operator: '/api/hierarchy/operators',
         'mpcs-officer': '/api/hierarchy/mpcs-officers',
         'transport-manager': '/api/hierarchy/transport-managers',
-      }[staffType];
+        driver: '/api/hierarchy/drivers'
+      }[values.role];
 
       await axios.post(
         `http://localhost:5000${endpoint}`,
-        { dmId: user.dmId, ...values },
+        { ...values, dmId: user.id },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
-      message.success(`${staffType.toUpperCase()} created successfully`);
+      messageApi.success(`${values.role} added successfully`);
+      setIsStaffModalVisible(false);
       staffForm.resetFields();
-      setIsStaffModalVisible(false);
       fetchStaff();
-      if (staffType === 'transport-manager') fetchTransportManagers();
     } catch (error) {
-      message.error(error.response?.data?.error || 'Simulating Staff Creation locally');
-      // Fallback for visual demonstration
-      setIsStaffModalVisible(false);
+      messageApi.error('Failed to add member');
+    }
+  };
+
+  const [isVehicleModalVisible, setIsVehicleModalVisible] = useState(false);
+  const [vehicleForm] = Form.useForm();
+  
+  const handleAddVehicle = async (values) => {
+    try {
+      await axios.post(`${API_URL}/hierarchy/motor-vehicles`, { ...values, dmId: user.id }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      messageApi.success('Vehicle added to fleet');
+      setIsVehicleModalVisible(false);
+      vehicleForm.resetFields();
+      fetchStaff();
+    } catch (error) {
+      messageApi.error('Failed to add vehicle');
     }
   };
 
@@ -252,30 +434,29 @@ const DistrictManagerDashboard = () => {
     }
   }, [supervisors, districtDispatches]);
 
-  const handleCreateBatch = (values) => {
-    if (values.quantity > chillerVolume) {
-      message.error('Insufficient milk in chilling plant!');
+  const handleCreateBatch = async (values) => {
+    const sourceTank = chillerTanks.find(t => t.id === values.sourceTankId);
+    if (!sourceTank || sourceTank.currentLevel < values.quantity) {
+      message.error(`Insufficient milk in ${sourceTank?.name || 'selected tank'}!`);
       return;
     }
 
-    // Mapping of all pre-assigned supervisors
+    // Pre-calculated supervisors for the new sequence
     const stageSupervisors = {
-      CHILLING: supervisors.find(s => s.id === values.supChilling)?.fullName,
+      CLARIFICATION: supervisors.find(s => s.id === values.supClarify)?.fullName,
       PASTEURIZATION: supervisors.find(s => s.id === values.supPasteurize)?.fullName,
       HOMOGENIZATION: supervisors.find(s => s.id === values.supHomogenize)?.fullName,
-      PACKAGING: supervisors.find(s => s.id === values.supPackaging)?.fullName,
-      STORAGE: supervisors.find(s => s.id === values.supStorage)?.fullName,
-      DELIVERY: supervisors.find(s => s.id === values.supDelivery)?.fullName,
+      PACKING: supervisors.find(s => s.id === values.supPacking)?.fullName,
     };
 
     const newBatch = {
       id: `BATCH-${Date.now().toString().slice(-4)}`,
       quantity: values.quantity,
-      status: 'CHILLING',
-      machineId: 'MCH-001',
+      milkType: sourceTank.milkType,
+      sourceTankId: sourceTank.id,
+      status: 'CLARIFICATION',
       stageSupervisors,
-      // Current active supervisor is the one for the CHILLING stage
-      assignedSupervisor: stageSupervisors.CHILLING,
+      assignedSupervisor: stageSupervisors.CLARIFICATION,
       assignedOperator: null,
       operatorId: null,
       stageProgress: 0,
@@ -286,17 +467,23 @@ const DistrictManagerDashboard = () => {
     setDistrictBatches(updatedBatches);
     localStorage.setItem('districtBatches', JSON.stringify(updatedBatches));
 
-    // Update first machine status
-    const updatedMachines = machineData.map(m => m.id === 'MCH-001' ? { ...m, status: 'RUNNING', batch: newBatch.id, progress: 0 } : m);
-    setMachineData(updatedMachines);
-    localStorage.setItem('districtMachines', JSON.stringify(updatedMachines));
+    // Update first machine - find an available Clarifier
+    const clarifier = machineData.find(m => m.type === 'CLARIFIER' && m.status === 'IDLE');
+    if (clarifier) {
+        setMachineData(machineData.map(m => m.id === clarifier.id ? { ...m, status: 'RUNNING', batch: newBatch.id, progress: 0 } : m));
+    }
 
-    // Deduct from chiller
-    const newVol = chillerVolume - values.quantity;
-    setChillerVolume(newVol);
-    localStorage.setItem('districtChillerVolume', newVol.toString());
+    // Deduct from the specific tank in DB
+    try {
+        await axios.patch(`${API_URL}/hierarchy/chiller-tanks/${sourceTank.id}`, {
+            currentLevel: sourceTank.currentLevel - values.quantity
+        }, { headers: { Authorization: `Bearer ${token}` }});
+        fetchChillerTanks();
+    } catch (e) {
+        console.error('Failed to update tank level', e);
+    }
 
-    message.success(`Production Batch ${newBatch.id} created with all supervisors pre-assigned!`);
+    message.success(`Production Batch ${newBatch.id} initialized from ${sourceTank.name}`);
     setIsBatchModalVisible(false);
     batchForm.resetFields();
   };
@@ -307,10 +494,10 @@ const DistrictManagerDashboard = () => {
     const updatedBatches = districtBatches.map(b => {
       if (b.id === selectedBatchId) {
         const sequence = [
-          'CHILLING', 'CHILLING_DONE',
+          'CLARIFICATION', 'CLARIFICATION_DONE',
           'PASTEURIZATION', 'PASTEURIZATION_DONE',
           'HOMOGENIZATION', 'HOMOGENIZATION_DONE',
-          'PACKAGING', 'PACKAGING_DONE',
+          'PACKING', 'PACKING_DONE',
           'STORAGE', 'STORAGE_DONE',
           'DELIVERY'
         ];
@@ -348,11 +535,10 @@ const DistrictManagerDashboard = () => {
 
   const getBatchStatusStep = (status) => {
     const sequence = [
-      'CHILLING', 'CHILLING_DONE',
+      'CLARIFICATION', 'CLARIFICATION_DONE',
       'PASTEURIZATION', 'PASTEURIZATION_DONE',
       'HOMOGENIZATION', 'HOMOGENIZATION_DONE',
-      'PACKAGING', 'PACKAGING_DONE',
-      'STORAGE', 'STORAGE_DONE',
+      'PACKING', 'PACKING_DONE',
       'DELIVERY'
     ];
     const index = sequence.findIndex(s => s === status);
@@ -369,7 +555,7 @@ const DistrictManagerDashboard = () => {
           size="small"
           current={current}
           items={[
-            { title: 'Dispatched', description: 'From MPCS', subTitle: record.date },
+            { title: 'Dispatched', description: 'From MPCS', subTitle: record.dispatchDate ? dayjs(record.dispatchDate).format('HH:mm') : '' },
             { title: 'Logistics', description: 'Automatic Arrival' },
             { title: 'At District', description: 'Factory Entry' },
             { title: 'To Chiller', description: record.assignedSupervisor || 'In Progress' },
@@ -393,7 +579,7 @@ const DistrictManagerDashboard = () => {
 
   const renderBatchPipeline = (record) => {
     const current = getBatchStatusStep(record.status);
-    const stages = ['CHILLING', 'PASTEURIZATION', 'HOMOGENIZATION', 'PACKAGING', 'STORAGE', 'DELIVERY'];
+    const stages = ['CLARIFICATION', 'PASTEURIZATION', 'HOMOGENIZATION', 'PACKING', 'STORAGE', 'DELIVERY'];
 
     return (
       <Card style={{ margin: '0 50px', borderRadius: '12px', border: '1px solid #dcfce7', background: '#fff' }}>
@@ -440,23 +626,23 @@ const DistrictManagerDashboard = () => {
 
             <Row gutter={[24, 24]} style={{ marginBottom: '40px' }}>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="TOTAL STAFF UNDER DM" value={supervisors.length + operators.length + mpcsOfficers.length + transportManagers.length || 12} valueStyle={{ color: '#093A3E', fontWeight: 800 }} prefix={<TeamOutlined style={{ background: '#f0fdff', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="borderless" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TOTAL STAFF" value={supervisors.length + operators.length + mpcsOfficers.length + transportManagers.length || 12} styles={{ content: { color: '#093A3E', fontWeight: 800 } }} prefix={<TeamOutlined style={{ background: '#f0fdff', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="CHILLING TANK VOLUME" value={chillerVolume} precision={1} suffix="L" valueStyle={{ color: '#0369a1', fontWeight: 800 }} prefix={<ExperimentOutlined style={{ background: '#f0f9ff', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="borderless" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="COW MILK STORAGE" value={chillerTanks.filter(t => t.milkType === 'COW').reduce((s, t) => s + t.currentLevel, 0)} precision={1} suffix="L" styles={{ content: { color: '#0369a1', fontWeight: 800 } }} prefix={<ExperimentOutlined style={{ background: '#f0f9ff', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="ACTIVE PROCESSES" value={ongoingProcesses.length} valueStyle={{ color: '#ea580c', fontWeight: 800 }} prefix={<ThunderboltOutlined style={{ background: '#fff7ed', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="borderless" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="BUFFALO MILK STORAGE" value={chillerTanks.filter(t => t.milkType === 'BUFFALO').reduce((s, t) => s + t.currentLevel, 0)} precision={1} suffix="L" styles={{ content: { color: '#ea580c', fontWeight: 800 } }} prefix={<ThunderboltOutlined style={{ background: '#fff7ed', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
               <Col xs={24} sm={12} lg={6}>
-                <Card bordered={false} className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
-                  <Statistic title="TRANSIT INBOUND" value={districtDispatches.filter(d => d.status === 'EN_ROUTE_TO_DISTRICT').length} valueStyle={{ color: '#059669', fontWeight: 800 }} prefix={<TruckOutlined style={{ background: '#ecfdf5', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
+                <Card variant="borderless" className="dip-stat-card" style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}>
+                  <Statistic title="TOTAL VOLUME" value={chillerVolume} styles={{ content: { color: '#059669', fontWeight: 800 } }} prefix={<TruckOutlined style={{ background: '#ecfdf5', padding: '8px', borderRadius: '8px', marginRight: '8px' }} />} />
                 </Card>
               </Col>
             </Row>
@@ -511,56 +697,96 @@ const DistrictManagerDashboard = () => {
         );
       case 'operations':
         return (
-          <Card
-            title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Live Process & Fleet Monitoring</span>}
-            bordered={false}
-            style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
-          >
+          <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <div>
+                <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111827', margin: 0 }}>Production Pipeline</h1>
+                <p style={{ color: '#6b7280', marginTop: '4px' }}>Real-time monitoring and stage management of all active production batches.</p>
+              </div>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsBatchModalVisible(true)} style={{ background: '#1a5c38' }} size="large">
+                Create New Production Batch
+              </Button>
+            </div>
+
             <Table
               columns={[
-                { title: 'ROLE', key: 'role', dataIndex: 'role', render: t => <Tag color={t === 'OPERATOR' ? 'blue' : t === 'SUPERVISOR' ? 'volcano' : 'purple'}>{t}</Tag> },
-                { title: 'STAFF NAME', dataIndex: 'name', key: 'name', render: t => <span style={{ fontWeight: 600 }}>{t}</span> },
-                { title: 'CURRENT TASK', dataIndex: 'task', key: 'task' },
-                { title: 'STARTED AT', dataIndex: 'startTime', key: 'startTime' },
-                { title: 'STATUS', dataIndex: 'status', key: 'status', render: s => <Tag color={s === 'ACTIVE' ? 'success' : 'processing'}><CheckCircleOutlined /> {s}</Tag> }
+                { title: 'BATCH ID', dataIndex: 'id', key: 'id', render: t => <span style={{ fontWeight: 800, color: '#093a3e' }}>{t}</span> },
+                { title: 'QTY (L)', dataIndex: 'quantity', key: 'quantity', render: q => <span style={{ fontWeight: 700 }}>{q} L</span> },
+                { title: 'MILK TYPE', dataIndex: 'milkType', key: 'milkType', render: t => <Tag color={t === 'COW' ? 'blue' : 'orange'}>{t}</Tag> },
+                { title: 'SUPERVISOR', dataIndex: 'assignedSupervisor', key: 'assignedSupervisor', render: s => s || <i style={{ color: '#94a3b8' }}>Unassigned</i> },
+                {
+                  title: 'PROCESS', dataIndex: 'status', key: 'status', render: s => (
+                    <Tag color={s.includes('_DONE') ? 'orange' : 'blue'} style={{ fontWeight: 700 }}>
+                      {s.replace(/_/g, ' ')}
+                    </Tag>
+                  )
+                },
+                {
+                  title: 'ACTIONS', key: 'state', render: (_, record) => (
+                    record.status === 'STORAGE_DONE' ? (
+                        <Button size="small" type="primary" style={{ background: '#312e81' }} onClick={() => handleRequestDelivery(record)}>
+                          🚀 Deliver to Shop
+                        </Button>
+                    ) : (record.status.includes('_DONE') && record.status !== 'DELIVERED_TO_RETAIL_DONE' ? (
+                      <Button size="small" type="primary" onClick={() => { setSelectedBatchId(record.id); setIsNextStageModalVisible(true); }}>
+                        Handover to Next Stage
+                      </Button>
+                    ) : record.status === 'DELIVERED_TO_RETAIL_DONE' ? <Tag color="green">FINISHED</Tag> : <Tag color="processing">ONGOING</Tag>)
+                  )
+                }
               ]}
-              dataSource={ongoingProcesses}
-              pagination={false}
+              dataSource={districtBatches}
               rowKey="id"
+              pagination={false}
+              style={{ background: '#fff', borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}
+              expandable={{
+                expandedRowRender: record => renderBatchPipeline(record),
+                defaultExpandAllRows: true,
+              }}
             />
-          </Card>
+          </div>
         );
       case 'chilling':
         return (
           <>
             <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
-              <Card
-                bordered={false}
-                style={{ borderRadius: '16px', marginBottom: '24px', background: 'linear-gradient(135deg, #0369a1 0%, #082f49 100%)', color: '#fff' }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-                  <div>
-                    <h2 style={{ color: '#fff', margin: 0, fontWeight: 800 }}>Milk Reception & Chilling Tanks</h2>
-                    <p style={{ margin: '8px 0 0 0', opacity: 0.8 }}>Receive dispatched milk from MPCS units directly into the District Chilling infrastructure.</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: '12px', textTransform: 'uppercase', letterSpacing: '1px', opacity: 0.8 }}>Current Tank Volume</div>
-                    <div style={{ fontSize: '36px', fontWeight: 800 }}>{chillerVolume.toFixed(1)} L</div>
-                    <div style={{ fontSize: '12px', marginTop: '4px', opacity: 0.9 }}>Main Silo: Operating optimally at 4°C</div>
-                  </div>
-                </div>
-              </Card>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+                <h3 style={{ fontWeight: 800, margin: 0 }}>Factory Chiller Silos</h3>
+              </div>
+
+              <Row gutter={[24, 24]} style={{ marginBottom: '40px' }}>
+                {chillerTanks.filter(t => t.unitType === 'SILO').map(tank => (
+                    <Col span={12} key={tank.id}>
+                        <Card variant="borderless" style={{ borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+                                <div>
+                                    <h4 style={{ margin: 0, fontWeight: 800 }}>{tank.name}</h4>
+                                    <Tag color={tank.milkType === 'COW' ? 'blue' : 'orange'}>{tank.milkType} MILK</Tag>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <div style={{ fontSize: '20px', fontWeight: 900, color: '#0369a1' }}>{tank.currentLevel} / {tank.capacity} L</div>
+                                    <Tag color="success">TEMP: {tank.temperature}°C</Tag>
+                                </div>
+                            </div>
+                            <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                                <div style={{ height: '100%', background: tank.milkType === 'COW' ? '#0369a1' : '#ea580c', width: `${(tank.currentLevel / tank.capacity) * 100}%`, transition: 'width 0.5s ease' }} />
+                            </div>
+                        </Card>
+                    </Col>
+                ))}
+              </Row>
 
               <Card
-                title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Inbound Dispatches from MPCS Branches</span>}
+                title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Logistics History & Arrival Log</span>}
                 bordered={false}
                 style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
               >
                 <Table
                   columns={[
-                    { title: 'DISPATCH ID', dataIndex: 'id', key: 'id', render: t => <span style={{ fontWeight: 600 }}>{t}</span> },
-                    { title: 'DATE', dataIndex: 'date', key: 'date' },
-                    { title: 'INBOUND QTY', dataIndex: 'quantity', key: 'quantity', render: v => <span style={{ fontWeight: 700 }}>{v} L</span> },
+                    { title: 'DISPATCH ID', dataIndex: 'dispatchId', key: 'id', render: t => <span style={{ fontWeight: 600 }}>{t}</span> },
+                    { title: 'DATE', dataIndex: 'dispatchDate', key: 'date', render: d => dayjs(d).format('YYYY-MM-DD') },
+                    { title: 'INBOUND QTY', dataIndex: 'totalQuantity', key: 'quantity', render: v => <span style={{ fontWeight: 700 }}>{v} L</span> },
                     {
                       title: 'STATUS', dataIndex: 'status', key: 'status', render: s => (
                         <Tag color={s === 'EN_ROUTE_TO_DISTRICT' ? 'warning' : s === 'MOVING_TO_CHILLER' ? 'processing' : 'success'}>
@@ -592,161 +818,240 @@ const DistrictManagerDashboard = () => {
                   }}
                 />
               </Card>
-
-              <Divider style={{ margin: '40px 0' }} />
-
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
-                <h3 style={{ fontWeight: 800, margin: 0 }}>Active Production Batches</h3>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsBatchModalVisible(true)} style={{ background: '#1a5c38' }}>
-                  Create New Batch
-                </Button>
-              </div>
-
-              <Table
-                columns={[
-                  { title: 'BATCH ID', dataIndex: 'id', key: 'id' },
-                  { title: 'QTY (L)', dataIndex: 'quantity', key: 'quantity' },
-                  { title: 'SUPERVISOR', dataIndex: 'assignedSupervisor', key: 'assignedSupervisor', render: s => s || <i style={{ color: '#94a3b8' }}>Unassigned</i> },
-                  {
-                    title: 'PROCESS', dataIndex: 'status', key: 'status', render: s => (
-                      <Tag color={s.includes('_DONE') ? 'orange' : 'blue'}>
-                        {s.replace(/_/g, ' ')}
-                      </Tag>
-                    )
-                  },
-                  {
-                    title: 'ACTIONS', key: 'state', render: (_, record) => (
-                      record.status.includes('_DONE') && record.status !== 'DELIVERED_TO_RETAIL_DONE' ? (
-                        <Button size="small" type="primary" onClick={() => { setSelectedBatchId(record.id); setIsNextStageModalVisible(true); }}>
-                          Assign Next Stage
-                        </Button>
-                      ) : record.status === 'DELIVERED_TO_RETAIL_DONE' ? <Tag color="green">FINISHED</Tag> : <Tag color="processing">ONGOING</Tag>
-                    )
-                  }
-                ]}
-                dataSource={districtBatches}
-                rowKey="id"
-                pagination={false}
-                expandable={{
-                  expandedRowRender: record => renderBatchPipeline(record),
-                  defaultExpandAllRows: true,
-                }}
-              />
             </div>
           </>
         );
       case 'staff':
         return (
-          <Card
-            title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Member Management</span>}
-            extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: '#093A3E' }} onClick={() => setIsStaffModalVisible(true)}>Add Member</Button>}
-            bordered={false}
-            style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
-          >
-            <Tabs>
-              <Tabs.TabPane tab="Supervisors" key="supervisors">
-                <Table
-                  columns={[
-                    { title: 'ID', dataIndex: 'supId' },
-                    { title: 'Name', dataIndex: 'fullName' },
-                    { title: 'Role', dataIndex: 'specialization', render: s => <Tag color={s === 'COLLECTION' ? 'purple' : 'blue'}>{s || 'PRODUCTION'}</Tag> },
-                    { title: 'Status', dataIndex: 'status', render: () => <Tag color="success">ACTIVE</Tag> }
-                  ]}
-                  dataSource={supervisors}
-                  rowKey="id"
-                />
-              </Tabs.TabPane>
-              <Tabs.TabPane tab="Operators" key="operators">
-                <Table columns={[{ title: 'ID', dataIndex: 'opId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Email', dataIndex: 'email' }]} dataSource={operators} rowKey="id" />
-              </Tabs.TabPane>
-              <Tabs.TabPane tab="MPCS Officers" key="mpcs">
-                <Table columns={[{ title: 'ID', dataIndex: 'mpcsId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Email', dataIndex: 'email' }]} dataSource={mpcsOfficers} rowKey="id" />
-              </Tabs.TabPane>
-              <Tabs.TabPane tab="Transport Fleet" key="transport">
-                <Table columns={[{ title: 'TM ID', dataIndex: 'tmId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Phone', dataIndex: 'phoneNumber' }]} dataSource={transportManagers} rowKey="id" />
-              </Tabs.TabPane>
-            </Tabs>
-          </Card>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <Card
+              title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Personnel Management</span>}
+              extra={<Button type="primary" icon={<PlusOutlined />} style={{ background: '#093A3E' }} onClick={() => setIsStaffModalVisible(true)}>Add New Personnel</Button>}
+              variant="borderless"
+              style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
+            >
+              <Tabs defaultActiveKey="supervisors">
+                <Tabs.TabPane tab="Factory Supervisors" key="supervisors">
+                  <Table
+                    columns={[
+                      { title: 'ID', dataIndex: 'supId' },
+                      { title: 'Name', dataIndex: 'fullName' },
+                      { title: 'Specialization', dataIndex: 'specialization', render: s => <Tag color={s === 'COLLECTION' ? 'purple' : 'blue'}>{s || 'PRODUCTION'}</Tag> },
+                      { title: 'Contact', dataIndex: 'email' },
+                      { title: 'Status', dataIndex: 'status', render: s => <Tag color="success">{s || 'ACTIVE'}</Tag> }
+                    ]}
+                    dataSource={supervisors}
+                    rowKey="id"
+                  />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="Production Operators" key="operators">
+                  <Table columns={[{ title: 'ID', dataIndex: 'opId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Email', dataIndex: 'email' }, { title: 'Phone', dataIndex: 'phoneNumber' }]} dataSource={operators} rowKey="id" />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="MPCS Officers" key="mpcs">
+                  <Table columns={[{ title: 'ID', dataIndex: 'mpcsId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Email', dataIndex: 'email' }]} dataSource={mpcsOfficers} rowKey="id" />
+                </Tabs.TabPane>
+                <Tabs.TabPane tab="Transport Managers" key="tm">
+                  <Table columns={[{ title: 'ID', dataIndex: 'tmId' }, { title: 'Name', dataIndex: 'fullName' }, { title: 'Email', dataIndex: 'email' }]} dataSource={transportManagers} rowKey="id" />
+                </Tabs.TabPane>
+              </Tabs>
+            </Card>
+          </div>
+        );
+      case 'delivery_management':
+        return (
+          <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+              <h3 style={{ fontWeight: 800, margin: 0 }}>Retail Distribution Control</h3>
+            </div>
+            <Card title="Batches Awaiting Retail Delivery" bordered={false} style={{ borderRadius: '16px' }}>
+               <Table 
+                 dataSource={districtBatches.filter(b => b.status === 'AWAITING_DELIVERY' || b.status === 'STORAGE_DONE')}
+                 columns={[
+                   { title: 'BATCH ID', dataIndex: 'id' },
+                   { title: 'MILK TYPE', dataIndex: 'milkType' },
+                   { title: 'QUANTITY', dataIndex: 'quantity', render: q => `${q} L` },
+                   { title: 'STATUS', dataIndex: 'status', render: s => <Tag color="blue">{s.replace(/_/g, ' ')}</Tag> },
+                   { title: 'ACTION', render: (_, record) => (
+                      <Button type="primary" size="small" onClick={() => handleRequestDelivery(record)}>
+                        Ready for Delivery
+                      </Button>
+                   )}
+                 ]}
+                 rowKey="id"
+               />
+            </Card>
+          </div>
         );
       case 'machines':
         const filteredMachines = machineData.filter(m => {
-          const matchSearch = m.name.toLowerCase().includes(machineSearch.toLowerCase()) || m.id.toLowerCase().includes(machineSearch.toLowerCase());
+          const matchSearch = (m.name || '').toLowerCase().includes(machineSearch.toLowerCase()) || (m.machineId || '').toLowerCase().includes(machineSearch.toLowerCase());
           const matchStatus = machineStatusFilter === 'ALL' || m.status === machineStatusFilter;
           return matchSearch && matchStatus;
         });
+
+        const machineImages = {
+            CLARIFIER: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=400',
+            PASTEURIZER: 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=400',
+            HOMOGENIZER: 'https://images.unsplash.com/photo-1590959651373-a3db0f38a961?auto=format&fit=crop&q=80&w=400',
+            PACKER: 'https://images.unsplash.com/photo-1565463741600-9fed8e132717?auto=format&fit=crop&q=80&w=400'
+        };
 
         return (
           <>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
               <div>
-                <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111827', margin: 0 }}>Infrastructure Monitoring</h1>
+                <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111827', margin: 0 }}>Factory Machine Status</h1>
                 <p style={{ color: '#6b7280', marginTop: '4px' }}>Real-time health and throughput monitoring of factory floor units.</p>
               </div>
               <Space size="middle">
                 <Input.Search
-                  placeholder="Search by ID or Name"
-                  style={{ width: 250 }}
+                  placeholder="ID or Name"
+                  style={{ width: 220 }}
                   onChange={e => setMachineSearch(e.target.value)}
                 />
                 <Select
                   defaultValue="ALL"
-                  style={{ width: 160 }}
+                  style={{ width: 140 }}
                   onChange={setMachineStatusFilter}
                   options={[
                     { value: 'ALL', label: 'All Statuses' },
-                    { value: 'RUNNING', label: 'Running Now' },
-                    { value: 'IDLE', label: 'Standby / Idle' },
+                    { value: 'RUNNING', label: 'Running' },
+                    { value: 'IDLE', label: 'Idle' },
                     { value: 'MAINTENANCE', label: 'Maintenance' },
                   ]}
                 />
+                <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsMachineModalVisible(true)}>Add Machine</Button>
               </Space>
             </div>
 
             <Row gutter={[24, 24]}>
               {filteredMachines.map(m => (
                 <Col xs={24} md={12} xl={6} key={m.id}>
-                  <Card
-                    hoverable
-                    cover={<div style={{ height: '180px', overflow: 'hidden' }}><img alt={m.name} src={m.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>}
-                    bodyStyle={{ padding: '20px' }}
-                    style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}
+            <Card
+              hoverable
+              styles={{ body: { padding: '20px' } }}
+              style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                <div>
+                  <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.machineId}</div>
+                  <h3 style={{ margin: '4px 0', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{m.name}</h3>
+                  <Tag color="cyan">{m.type}</Tag>
+                </div>
+                <Tag color={m.status === 'RUNNING' ? 'success' : m.status === 'IDLE' ? 'warning' : m.status === 'MAINTENANCE' ? 'error' : 'default'}>
+                  {m.status}
+                </Tag>
+              </div>
+
+              <Divider style={{ margin: '12px 0' }} />
+
+              {m.status === 'RUNNING' ? (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
+                    <span style={{ fontSize: '13px', color: '#64748b' }}>Current Batch: <b>{m.currentBatchId || 'Unknown'}</b></span>
+                    <span style={{ fontSize: '13px', fontWeight: 700, color: '#093a3e' }}>{m.progress || 0}%</span>
+                  </div>
+                  <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', background: '#093a3e', width: `${m.progress || 0}%`, transition: 'width 0.5s ease' }} />
+                  </div>
+                </div>
+              ) : (
+                <div style={{ height: '32px', display: 'flex', alignItems: 'center', color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>
+                  No active processing...
+                </div>
+              )}
+
+              <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Space>
+                  <Tag color="default">Cap: {m.capacity}L</Tag>
+                  <Button 
+                    size="small" 
+                    type={m.status === 'MAINTENANCE' ? 'primary' : 'default'} 
+                    danger={m.status !== 'MAINTENANCE'}
+                    onClick={() => handleToggleMaintenance(m)}
                   >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                      <div>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.id}</div>
-                        <h3 style={{ margin: '4px 0', fontSize: '16px', fontWeight: 700, color: '#1e293b' }}>{m.name}</h3>
-                      </div>
-                      <Tag color={m.status === 'RUNNING' ? 'success' : m.status === 'IDLE' ? 'warning' : 'error'} style={{ borderRadius: '4px', margin: 0 }}>
-                        {m.status}
-                      </Tag>
-                    </div>
-
-                    <Divider style={{ margin: '12px 0' }} />
-
-                    {m.status === 'RUNNING' ? (
-                      <div>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '13px', color: '#64748b' }}>Current Batch: <b>{m.batch}</b></span>
-                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#093a3e' }}>{m.progress}%</span>
-                        </div>
-                        <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', background: '#093a3e', width: `${m.progress}%`, transition: 'width 0.5s ease' }} />
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ height: '32px', display: 'flex', alignItems: 'center', color: '#94a3b8', fontSize: '13px', fontStyle: 'italic' }}>
-                        No active processing...
-                      </div>
-                    )}
-
-                    <div style={{ marginTop: '20px', display: 'flex', gap: '8px' }}>
-                      <Button size="small" type="link" style={{ padding: 0 }}>System Logs</Button>
-                      <Button size="small" type="link" style={{ padding: 0 }}>History</Button>
-                    </div>
-                  </Card>
+                    {m.status === 'MAINTENANCE' ? 'Set Idle' : 'Maint.'}
+                  </Button>
+                </Space>
+                <Popconfirm title="Decommission this machine?" onConfirm={() => handleDeleteMachine(m.id)}>
+                  <Button type="text" danger icon={<DeleteOutlined />} size="small" />
+                </Popconfirm>
+              </div>
+            </Card>
                 </Col>
               ))}
+              {filteredMachines.length === 0 && <Col span={24}><Empty description="No machines found on factory floor" /></Col>}
             </Row>
+          </>
+        );
+      case 'infrastructure':
+        const silos = chillerTanks.filter(t => t.unitType === 'SILO');
+        const intermediate = chillerTanks.filter(t => t.unitType === 'INTERMEDIATE');
+        const packets = chillerTanks.filter(t => t.unitType === 'PACKET_STORAGE');
+
+        const renderTankGroup = (title, data, color) => (
+            <div style={{ marginBottom: '40px' }}>
+                <h3 style={{ fontWeight: 800, color: '#334155', marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '4px', height: '18px', background: color, borderRadius: '2px' }} />
+                    {title}
+                </h3>
+                <Row gutter={[24, 24]}>
+                    {data.map(tank => (
+                        <Col xs={24} md={12} xl={8} key={tank.id}>
+                            <Card variant="borderless" style={{ borderRadius: '16px', boxShadow: '0 4px 12px rgba(0,0,0,0.03)', overflow: 'hidden' }}>
+                                <div style={{ padding: '0 0 16px 0', borderBottom: '1px solid #f1f5f9', marginBottom: '16px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '11px', color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{tank.tankId}</div>
+                                        <h3 style={{ margin: '4px 0', fontWeight: 800 }}>{tank.name}</h3>
+                                        <Tag color={tank.milkType === 'COW' ? 'blue' : tank.milkType === 'BUFFALO' ? 'orange' : 'green'}>{tank.milkType}</Tag>
+                                    </div>
+                                    <Popconfirm title="Decommission this tank?" onConfirm={() => handleDeleteTank(tank.id)}>
+                                        <Button type="text" icon={<DeleteOutlined />} danger />
+                                    </Popconfirm>
+                                </div>
+
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '8px' }}>
+                                    <div>
+                                        <div style={{ fontSize: '12px', color: '#64748b' }}>Current Level</div>
+                                        <div style={{ fontSize: '24px', fontWeight: 800, color: '#093a3e' }}>{tank.currentLevel} <small style={{ fontSize: '14px', fontWeight: 400 }}>/ {tank.capacity} {tank.milkType === 'PACKETS' ? 'Units' : 'L'}</small></div>
+                                    </div>
+                                    <div style={{ textAlign: 'right' }}>
+                                        <Tag color="cyan">{tank.temperature || 4.0}°C</Tag>
+                                    </div>
+                                </div>
+
+                                <div style={{ height: '10px', background: '#f8fafc', borderRadius: '5px', overflow: 'hidden', border: '1px solid #f1f5f9' }}>
+                                    <div style={{ 
+                                        height: '100%', 
+                                        background: color, 
+                                        width: `${Math.min(100, (tank.currentLevel / tank.capacity) * 100)}%`, 
+                                        transition: 'width 1s ease' 
+                                    }} />
+                                </div>
+                                <div style={{ marginTop: '12px', fontSize: '11px', color: '#94a3b8' }}>Status: {tank.status}</div>
+                            </Card>
+                        </Col>
+                    ))}
+                    {data.length === 0 && <Col span={24}><Empty description={`No ${title.toLowerCase()} configured`} /></Col>}
+                </Row>
+            </div>
+        );
+
+        return (
+          <>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '32px' }}>
+              <div>
+                <h1 style={{ fontSize: '26px', fontWeight: 800, color: '#111827', margin: 0 }}>Storage Infrastructure</h1>
+                <p style={{ color: '#6b7280', marginTop: '4px' }}>Real-time capacity management across the entire factory storage network.</p>
+              </div>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setIsTankModalVisible(true)} size="large">
+                Provision New Storage Unit
+              </Button>
+            </div>
+
+            {renderTankGroup('Main Chiller Silos (Raw Milk)', silos, '#0369a1')}
+            {renderTankGroup('Intermediate Process Tanks', intermediate, '#059669')}
+            {renderTankGroup('Finished Goods Warehouse', packets, '#6366f1')}
           </>
         );
       case 'profile':
@@ -790,6 +1095,7 @@ const DistrictManagerDashboard = () => {
   return (
     <ConfigProvider theme={{ token: { colorPrimary: '#093a3e', borderRadius: 8 } }}>
       <Layout style={{ minHeight: '100vh', background: '#f8fafc' }}>
+        {contextHolder}
         <Sider
           trigger={null}
           collapsible
@@ -818,9 +1124,11 @@ const DistrictManagerDashboard = () => {
             items={[
               { key: 'dashboard', icon: <DashboardOutlined />, label: 'Master Overview' },
               { key: 'chilling', icon: <ExperimentOutlined />, label: 'Factory Reception' },
-              { key: 'operations', icon: <ToolOutlined />, label: 'Process Control' },
+              { key: 'operations', icon: <ThunderboltOutlined />, label: 'Production Pipeline' },
+              { key: 'delivery_management', icon: <ShoppingOutlined />, label: 'Retail Delivery' },
               { key: 'machines', icon: <SettingOutlined />, label: 'Machine Status' },
-              { key: 'staff', icon: <TeamOutlined />, label: 'Member Management' },
+              { key: 'infrastructure', icon: <ToolOutlined />, label: 'Storage & Silos' },
+              { key: 'staff', icon: <TeamOutlined />, label: 'Staff & Personnel' },
             ]}
           />
 
@@ -880,10 +1188,12 @@ const DistrictManagerDashboard = () => {
                 { value: 'operator', label: 'Plant Operator Role' },
                 { value: 'mpcs-officer', label: 'MPCS Local Officer Role' },
                 { value: 'transport-manager', label: 'Fleet / Transport Manager' },
+                { value: 'driver', label: 'Vehicle Driver Role' }
               ]}
             />
           </div>
           <Form form={staffForm} onFinish={handleAddStaff} layout="vertical">
+            <Form.Item name="role" hidden initialValue={staffType}><Input /></Form.Item>
             <Form.Item name="fullName" label="Assigned Name" rules={[{ required: true }]}><Input /></Form.Item>
             {staffType === 'supervisor' && (
               <Form.Item name="specialization" label="Factory Specialization" rules={[{ required: true }]}>
@@ -895,9 +1205,29 @@ const DistrictManagerDashboard = () => {
             )}
             <Form.Item name="email" label="Provisioned Email" rules={[{ required: true }]}><Input /></Form.Item>
             <Form.Item name="password" label="Temporary Access Key" rules={[{ required: true }]}><Input.Password /></Form.Item>
+            {staffType === 'operator' && (
+              <Form.Item name="supervisorId" label="Assign To Supervisor" rules={[{ required: true }]}>
+                <Select placeholder="Choose an immediate supervisor">
+                  {supervisors.map(s => <Option key={s.id} value={s.id}>{s.fullName} ({s.specialization})</Option>)}
+                </Select>
+              </Form.Item>
+            )}
+            {staffType === 'driver' && (
+              <>
+                 <Form.Item name="tmId" label="Assign to Transport Manager" rules={[{ required: true }]}>
+                   <Select placeholder="Choose transport manager">
+                     {transportManagers.map(tm => <Option key={tm.id} value={tm.tmId}>{tm.fullName} ({tm.tmId})</Option>)}
+                   </Select>
+                 </Form.Item>
+                 <Form.Item name="drivingLicenseNumber" label="Driving License Number" rules={[{ required: true }]}><Input /></Form.Item>
+                 <Row gutter={16}>
+                   <Col span={12}><Form.Item name="licenseExpiry" label="License Expiry" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
+                   <Col span={12}><Form.Item name="licenseClass" label="License Class" initialValue="HMV"><Input placeholder="e.g. HMV" /></Form.Item></Col>
+                 </Row>
+              </>
+            )}
             {staffType === 'transport-manager' && (
               <>
-                <Form.Item name="phoneNumber" label="Dispatch Contact"><Input /></Form.Item>
                 <Form.Item name="licenseNumber" label="Gov License #"><Input /></Form.Item>
                 <Form.Item name="licenseExpiry" label="Expiry Date"><DatePicker style={{ width: '100%' }} /></Form.Item>
               </>
@@ -919,13 +1249,26 @@ const DistrictManagerDashboard = () => {
         >
           <Form form={batchForm} onFinish={handleCreateBatch} layout="vertical">
             <Row gutter={16}>
+              <Col span={24}>
+                <Form.Item name="sourceTankId" label="Extract Milk From (Chiller Tank)" rules={[{ required: true }]}>
+                  <Select placeholder="Select a chiller tank with sufficient milk">
+                    {chillerTanks.map(t => (
+                      <Option key={t.id} value={t.id} disabled={t.currentLevel <= 0}>
+                        {t.name} ({t.milkType}) - Available: {t.currentLevel}L
+                      </Option>
+                    ))}
+                  </Select>
+                </Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
               <Col span={12}>
                 <Form.Item name="quantity" label="Extract Quantity (L)" rules={[{ required: true }]}>
-                  <InputNumber min={1} max={chillerVolume} style={{ width: '100%' }} placeholder="Milk to extract" />
+                  <InputNumber min={1} style={{ width: '100%' }} placeholder="Milk to extract" />
                 </Form.Item>
               </Col>
               <Col span={12}>
-                <Form.Item name="supChilling" label="1. Chilling Supervisor" rules={[{ required: true }]}>
+                <Form.Item name="supClarify" label="1. Clarification Supervisor" rules={[{ required: true }]}>
                   <Select placeholder="Select supervisor">
                     {supervisors.filter(s => s.specialization === 'PRODUCTION').map(s => <Option key={s.id} value={s.id}>{s.fullName}</Option>)}
                   </Select>
@@ -951,15 +1294,8 @@ const DistrictManagerDashboard = () => {
             </Row>
 
             <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="supPackaging" label="4. Packaging Supervisor" rules={[{ required: true }]}>
-                  <Select placeholder="Select supervisor">
-                    {supervisors.filter(s => s.specialization === 'PRODUCTION').map(s => <Option key={s.id} value={s.id}>{s.fullName}</Option>)}
-                  </Select>
-                </Form.Item>
-              </Col>
-              <Col span={12}>
-                <Form.Item name="supStorage" label="5. Storage Supervisor" rules={[{ required: true }]}>
+              <Col span={24}>
+                <Form.Item name="supPacking" label="4. Packing & Storage Supervisor" rules={[{ required: true }]}>
                   <Select placeholder="Select supervisor">
                     {supervisors.filter(s => s.specialization === 'PRODUCTION').map(s => <Option key={s.id} value={s.id}>{s.fullName}</Option>)}
                   </Select>
@@ -967,15 +1303,7 @@ const DistrictManagerDashboard = () => {
               </Col>
             </Row>
 
-            <Row gutter={16}>
-              <Col span={12}>
-                <Form.Item name="supDelivery" label="6. Delivery Supervisor" rules={[{ required: true }]}>
-                  <Select placeholder="Select supervisor">
-                    {supervisors.filter(s => s.specialization === 'PRODUCTION').map(s => <Option key={s.id} value={s.id}>{s.fullName}</Option>)}
-                  </Select>
-                </Form.Item>
-              </Col>
-            </Row>
+
           </Form>
         </Modal>
 
@@ -1000,6 +1328,139 @@ const DistrictManagerDashboard = () => {
               Handing over <b>{selectedBatchId}</b> to the selected supervisor for the next factory production phase.
             </p>
           </Form>
+        </Modal>
+
+
+        <Modal
+            title={<span style={{ fontWeight: 800 }}>Add New Factory Machine</span>}
+            open={isMachineModalVisible}
+            onOk={() => machineForm.submit()}
+            onCancel={() => setIsMachineModalVisible(false)}
+            okText="Add Machine"
+        >
+            <Form form={machineForm} layout="vertical" onFinish={handleAddMachine}>
+                <Form.Item name="name" label="Machine Name" rules={[{ required: true }]}>
+                    <Input placeholder="e.g., Clarifier Unit 1" />
+                </Form.Item>
+                <Form.Item name="type" label="Machine Type" rules={[{ required: true }]}>
+                    <Select placeholder="Select type">
+                        <Option value="CLARIFIER">🧹 Clarifier</Option>
+                        <Option value="PASTEURIZER">🔥 Pasteurizer</Option>
+                        <Option value="HOMOGENIZER">⚙️ Homogenizer</Option>
+                        <Option value="PACKER">📦 Milk Packing Machine</Option>
+                    </Select>
+                </Form.Item>
+                <Form.Item name="capacity" label="Daily Capacity (Liters)" rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} placeholder="e.g., 5000" />
+                </Form.Item>
+                <Form.Item name="machineId" label="Hardware Serial (Optional)">
+                    <Input placeholder="e.g. SN-CLR-001" />
+                </Form.Item>
+            </Form>
+        </Modal>
+
+        {/* Edit Machine Modal */}
+        <Modal
+            title={<span style={{ fontWeight: 800 }}>Edit Factory Machine</span>}
+            open={isEditMachineModalVisible}
+            onOk={() => editMachineForm.submit()}
+            onCancel={() => { setIsEditMachineModalVisible(false); setSelectedMachine(null); }}
+            okText="Update Machine"
+        >
+            <Form form={editMachineForm} layout="vertical" onFinish={handleUpdateMachine}>
+                <Form.Item name="name" label="Machine Name" rules={[{ required: true }]}>
+                    <Input />
+                </Form.Item>
+                <Form.Item name="capacity" label="Daily Capacity (Liters)" rules={[{ required: true }]}>
+                    <InputNumber min={0} style={{ width: '100%' }} />
+                </Form.Item>
+            </Form>
+        </Modal>
+
+        <Modal
+            title={<span style={{ fontWeight: 800 }}>Provision New Motor Vehicle</span>}
+            open={isVehicleModalVisible}
+            onOk={() => vehicleForm.submit()}
+            onCancel={() => setIsVehicleModalVisible(false)}
+            okText="Add to Fleet"
+            width={600}
+        >
+          <Form form={vehicleForm} layout="vertical" onFinish={handleAddVehicle}>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="tmId" label="Assign to Transport Manager" rules={[{ required: true }]}>
+                  <Select placeholder="Choose TM">
+                    {transportManagers.map(tm => <Option key={tm.id} value={tm.tmId}>{tm.fullName}</Option>)}
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="registrationNumber" label="Reg. Number (Plate)" rules={[{ required: true }]}><Input placeholder="TN-01-AB-1234" /></Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}>
+                <Form.Item name="vehicleType" label="Vehicle Category" rules={[{ required: true }]}>
+                  <Select>
+                    <Option value="TANKER">Tanker Truck</Option>
+                    <Option value="REFRIGERATED">Refrigerated Truck</Option>
+                    <Option value="CLOSED">Closed Container</Option>
+                  </Select>
+                </Form.Item>
+              </Col>
+              <Col span={12}>
+                <Form.Item name="capacity" label="Tanker Capacity (Liters)" rules={[{ required: true }]}><InputNumber style={{ width: '100%' }} /></Form.Item>
+              </Col>
+            </Row>
+            <Row gutter={16}>
+              <Col span={12}><Form.Item name="manufactureBrand" label="Brand" initialValue="TATA"><Input /></Form.Item></Col>
+              <Col span={12}><Form.Item name="year" label="Year" initialValue={2024}><InputNumber style={{ width: '100%' }} /></Form.Item></Col>
+            </Row>
+            <Form.Item name="chasisNumber" label="Chassis Number" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="engineNumber" label="Engine Number" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="registrationExpiry" label="Reg. Expiry Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
+          </Form>
+        </Modal>
+
+        <Modal
+            title={<span style={{ fontWeight: 800 }}>Provision New Storage Unit</span>}
+            open={isTankModalVisible}
+            onOk={() => tankForm.submit()}
+            onCancel={() => setIsTankModalVisible(false)}
+            okText="Provision Storage"
+        >
+            <Form form={tankForm} layout="vertical" onFinish={handleAddTank}>
+            <Form.Item name="name" label="Storage Name" rules={[{ required: true }]}>
+                <Input placeholder="e.g., Raw Milk Silo 1 or Intermediate Tank A" />
+            </Form.Item>
+            <Form.Item name="unitType" label="Storage Function" rules={[{ required: true }]} defaultValue="SILO">
+                <Select placeholder="Select function">
+                    <Option value="SILO">Main Chiller Silo (Raw Milk)</Option>
+                    <Option value="INTERMEDIATE">Intermediate Storage (Processed Milk)</Option>
+                    <Option value="PACKET_STORAGE">Packet / Finished Goods Warehouse</Option>
+                </Select>
+            </Form.Item>
+            <Form.Item name="milkType" label="Milk Category" rules={[{ required: true }]}>
+                <Select placeholder="Select allowed category">
+                <Option value="COW">Cow Milk</Option>
+                <Option value="BUFFALO">Buffalo Milk</Option>
+                <Option value="MIXED">Mixed / Bulk</Option>
+                <Option value="PACKETS">Finished Packets</Option>
+                </Select>
+            </Form.Item>
+            <Row gutter={16}>
+                <Col span={12}>
+                <Form.Item name="capacity" label="Total Capacity (Liters)" rules={[{ required: true }]}>
+                    <InputNumber style={{ width: '100%' }} placeholder="5000" />
+                </Form.Item>
+                </Col>
+                <Col span={12}>
+                <Form.Item name="tankId" label="Storage ID (Optional)">
+                    <Input placeholder="e.g. SILO-101" />
+                </Form.Item>
+                </Col>
+            </Row>
+            </Form>
         </Modal>
 
       </Layout>

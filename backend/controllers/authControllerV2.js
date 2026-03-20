@@ -1,5 +1,6 @@
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { Op } = require('sequelize');
 const User = require('../models/User');
 const Admin = require('../models/Admin');
 const DistrictManager = require('../models/DistrictManager');
@@ -22,6 +23,7 @@ exports.login = async (req, res) => {
     let user = null;
     let role = null;
     let userId = null;
+    const normalizePhone = (num) => (String(num || '').replace(/\D/g, '').replace(/^\+?/, ''));
 
     // Check Super Admin (User table)
     let superAdmin = await User.findOne({ where: { email, role: 'SUPER_ADMIN' } });
@@ -34,15 +36,27 @@ exports.login = async (req, res) => {
       }
     }
 
+    let additionalInfo = {};
+
     // Check Transport Manager (User table)
     if (!user) {
       let tm = await User.findOne({ where: { email, role: 'TRANSPORT_MANAGER' } });
       if (tm) {
         const passwordMatch = await bcrypt.compare(password, tm.passwordHash);
         if (passwordMatch && tm.status === 'APPROVED') {
+          const tmRecord = await require('../models/TransportManager').findOne({ where: { email } });
           user = tm;
           role = 'TRANSPORT_MANAGER';
           userId = tm.id;
+          if (tmRecord) {
+            additionalInfo = {
+              tmId: tmRecord.tmId,
+              tmRecordId: tmRecord.id,
+              dmId: tmRecord.dmId,
+              dmNumber: tmRecord.dmNumber,
+              adminNumber: tmRecord.adminNumber,
+            };
+          }
         }
       }
     }
@@ -53,9 +67,19 @@ exports.login = async (req, res) => {
       if (driver) {
         const passwordMatch = await bcrypt.compare(password, driver.passwordHash);
         if (passwordMatch && driver.status === 'APPROVED') {
+          const driverRecord = await require('../models/Driver').findOne({ where: { email } });
           user = driver;
           role = 'DRIVER';
           userId = driver.id;
+          if (driverRecord) {
+            additionalInfo = {
+              driverRecordId: driverRecord.id,
+              driverId: driverRecord.driverId,
+              tmId: driverRecord.tmId,
+              tmNumber: driverRecord.tmNumber,
+              dmNumber: driverRecord.dmNumber,
+            };
+          }
         }
       }
     }
@@ -127,7 +151,15 @@ exports.login = async (req, res) => {
 
     // Check Farmer table
     if (!user) {
-      let farmer = await Farmer.findOne({ where: { phoneNumber: email } });
+      const cleanedPhone = normalizePhone(email);
+      const candidatePhones = new Set([cleanedPhone]);
+      if (cleanedPhone.startsWith('91') && cleanedPhone.length === 12) {
+        candidatePhones.add(cleanedPhone.slice(2));
+      } else if (cleanedPhone.length === 10) {
+        candidatePhones.add('91' + cleanedPhone);
+      }
+
+      let farmer = await Farmer.findOne({ where: { phoneNumber: { [Op.in]: Array.from(candidatePhones) } } });
       if (farmer) {
         if (farmer.status !== 'ACTIVE') {
           return res.status(403).json({ error: 'Your account is inactive' });
@@ -199,6 +231,21 @@ exports.login = async (req, res) => {
       userResponse.dmId = user.dmId;
       userResponse.fullName = user.fullName;
       userResponse.adminNumber = user.adminNumber;
+    } else if (role === 'TRANSPORT_MANAGER') {
+      userResponse.tmId = additionalInfo.tmId || user.tmId || null;
+      userResponse.tmRecordId = additionalInfo.tmRecordId || null;
+      userResponse.dmId = additionalInfo.dmId || null;
+      userResponse.dmNumber = additionalInfo.dmNumber || null;
+      userResponse.adminNumber = additionalInfo.adminNumber || null;
+      userResponse.fullName = user.fullName;
+    } else if (role === 'DRIVER') {
+      userResponse.driverId = additionalInfo.driverId || null;
+      userResponse.driverRecordId = additionalInfo.driverRecordId || null;
+      // `tmId` for dashboard routing expects the TM code (tmNumber), not TM internal db id
+      userResponse.tmId = additionalInfo.tmNumber || additionalInfo.tmId || null;
+      userResponse.tmNumber = additionalInfo.tmNumber || null;
+      userResponse.dmNumber = additionalInfo.dmNumber || null;
+      userResponse.fullName = user.fullName;
     } else if (['SUPERVISOR', 'OPERATOR', 'MPCS_OFFICER'].includes(role)) {
       if (role === 'SUPERVISOR') {
         userResponse.supId = user.supId;
@@ -341,7 +388,16 @@ exports.farmerLogin = async (req, res) => {
       return res.status(400).json({ error: 'Phone number and password are required' });
     }
 
-    const farmer = await Farmer.findOne({ where: { phoneNumber } });
+    const normalizePhone = (num) => (String(num || '').replace(/\D/g, '').replace(/^\+?/, ''));
+    const cleanedPhone = normalizePhone(phoneNumber);
+    const candidatePhones = new Set([cleanedPhone]);
+    if (cleanedPhone.startsWith('91') && cleanedPhone.length === 12) {
+      candidatePhones.add(cleanedPhone.slice(2));
+    } else if (cleanedPhone.length === 10) {
+      candidatePhones.add('91' + cleanedPhone);
+    }
+
+    const farmer = await Farmer.findOne({ where: { phoneNumber: { [Op.in]: Array.from(candidatePhones) } } });
     if (!farmer) {
       return res.status(401).json({ error: 'Invalid phone number or password' });
     }

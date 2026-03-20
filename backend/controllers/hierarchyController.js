@@ -118,18 +118,47 @@ exports.createDistrictManager = async (req, res) => {
       status: 'ACTIVE',
     });
 
+    // AUTO-PROVISION SAMPLE INFRASTRUCTURE FOR THE NEW DM
+    const ChillerTank = require('../models/ChillerTank');
+    const Machine = require('../models/Machine');
+
+    // 1. Storage Samples
+    const sampleTanks = [
+        { tankId: `TANK-${dmId}-SILO-COW`, name: 'Raw Cow Milk Silo 1', milkType: 'COW', unitType: 'SILO', capacity: 15000 },
+        { tankId: `TANK-${dmId}-SILO-BUF`, name: 'Raw Buffalo Milk Silo 1', milkType: 'BUFFALO', unitType: 'SILO', capacity: 15000 },
+        { tankId: `TANK-${dmId}-INT-1`, name: 'Intermediate Process Tank A', milkType: 'MIXED', unitType: 'INTERMEDIATE', capacity: 5000 },
+        { tankId: `TANK-${dmId}-PACK-1`, name: 'Finished Product Cold Store', milkType: 'PACKETS', unitType: 'PACKET_STORAGE', capacity: 5000 }
+    ];
+
+    for (const t of sampleTanks) {
+        await ChillerTank.create({ ...t, dmId: dm.id, status: 'ACTIVE', currentLevel: 0 });
+    }
+
+    // 2. Machine Samples
+    const sampleMachines = [
+        { machineId: `MAC-${dmId}-CLR-1`, name: 'Auto-Clarifier C-100', type: 'CLARIFIER', capacity: 2000 },
+        { machineId: `MAC-${dmId}-PAS-1`, name: 'Flash Pasteurizer P-200', type: 'PASTEURIZER', capacity: 3000 },
+        { machineId: `MAC-${dmId}-HOM-1`, name: 'Industrial Homogenizer H-1', type: 'HOMOGENIZER', capacity: 2500 },
+        { machineId: `MAC-${dmId}-PKR-1`, name: 'Rotary Packing Unit PK-4', type: 'PACKER', capacity: 1000 }
+    ];
+
+    for (const m of sampleMachines) {
+        await Machine.create({ ...m, dmId: dm.id, status: 'IDLE', progress: 0 });
+    }
+
     res.status(201).json({
-      message: 'District Manager created successfully',
+      message: 'District Manager created and pre-provisioned with full sample infrastructure',
       dm: {
         id: dm.id,
         dmId: dm.dmId,
         fullName: dm.fullName,
         email: dm.email,
+        infrastructure: 'PROVISIONED'
       },
     });
   } catch (error) {
-    console.error('Error creating DM:', error);
-    res.status(500).json({ error: error.message });
+    console.error('Error creating District Manager:', error);
+    res.status(500).json({ success: false, message: 'Error creating District Manager', error: error.message });
   }
 };
 
@@ -204,9 +233,16 @@ exports.createSupervisor = async (req, res) => {
 // Operator Management
 exports.createOperator = async (req, res) => {
   try {
-    const { dmId, fullName, email, password } = req.body;
+    const { dmId, fullName, email, password, supervisorId: rawSupervisorId } = req.body;
+    const supervisorId = (rawSupervisorId && rawSupervisorId !== 'null') ? parseInt(rawSupervisorId) : null;
+    
+    console.log(`[CreateOperator] Creating operator: ${fullName}, for supervisorId: ${supervisorId}`);
 
-    const dm = await DistrictManager.findOne({ where: { dmId } });
+    const Operator = require('../models/Operator');
+    const DistrictManager = require('../models/DistrictManager');
+    const Supervisor = require('../models/Supervisor'); // Added for supervisor check
+
+    const dm = await DistrictManager.findByPk(dmId);
     if (!dm) {
       return res.status(404).json({ error: 'District Manager not found' });
     }
@@ -214,6 +250,14 @@ exports.createOperator = async (req, res) => {
     const existing = await Operator.findOne({ where: { email } });
     if (existing) {
       return res.status(400).json({ error: 'Email already registered' });
+    }
+
+    // If supervisorId is provided, check if the supervisor exists and belongs to this DM
+    if (supervisorId) {
+      const supervisor = await Supervisor.findByPk(supervisorId);
+      if (!supervisor || supervisor.dmId !== dm.id) {
+        return res.status(404).json({ error: 'Supervisor not found or does not belong to this District Manager' });
+      }
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -225,6 +269,7 @@ exports.createOperator = async (req, res) => {
       opId,
       adminId: dm.adminId,
       dmId: dm.id,
+      supervisorId: supervisorId || null,
       adminNumber: dm.adminNumber,
       dmNumber: dm.dmId,
       fullName,
@@ -299,30 +344,31 @@ exports.getStaffByDistrictManager = async (req, res) => {
   try {
     const { dmId } = req.params;
 
-    const dm = await DistrictManager.findOne({ where: { dmId } });
-    if (!dm) {
-      return res.status(404).json({ error: 'District Manager not found' });
-    }
+    const DistrictManager = require('../models/DistrictManager');
+    const Supervisor = require('../models/Supervisor');
+    const Operator = require('../models/Operator');
+    const MPCSofficer = require('../models/MPCSofficer');
+    const TransportManager = require('../models/TransportManager');
+    const Driver = require('../models/Driver');
+    const MotorVehicle = require('../models/MotorVehicle');
 
-    const supervisors = await Supervisor.findAll({
-      where: { dmId: dm.id },
-      attributes: { exclude: ['passwordHash'] },
-    });
+    const dm = await DistrictManager.findOne({ where: { dmId: req.params.dmId } });
+    if (!dm) return res.status(404).json({ error: 'DM not found' });
 
-    const operators = await Operator.findAll({
-      where: { dmId: dm.id },
-      attributes: { exclude: ['passwordHash'] },
-    });
-
-    const mpcsOfficers = await MPCSofficer.findAll({
-      where: { dmId: dm.id },
-      attributes: { exclude: ['passwordHash'] },
-    });
+    const supervisors = await Supervisor.findAll({ where: { dmId: dm.id }, attributes: { exclude: ['passwordHash'] } });
+    const operators = await Operator.findAll({ where: { dmId: dm.id }, attributes: { exclude: ['passwordHash'] } });
+    const mpcsOfficers = await MPCSofficer.findAll({ where: { dmId: dm.id }, attributes: { exclude: ['passwordHash'] } });
+    const transportManagers = await TransportManager.findAll({ where: { dmId: dm.id }, attributes: { exclude: ['passwordHash'] } });
+    const drivers = await Driver.findAll({ where: { dmId: dm.id }, attributes: { exclude: ['passwordHash'] } });
+    const vehicles = await MotorVehicle.findAll({ where: { dmId: dm.id } });
 
     res.json({
       supervisors,
       operators,
       mpcsOfficers,
+      transportManagers,
+      drivers,
+      vehicles
     });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -508,6 +554,7 @@ exports.createDriver = async (req, res) => {
 
     const driver = await Driver.create({
       driverId,
+      dmId: tm.dmId,
       tmId: tm.id,
       tmNumber: tm.tmId,
       dmNumber: tm.dmNumber,
@@ -563,6 +610,7 @@ exports.createMotorVehicle = async (req, res) => {
 
     const vehicle = await MotorVehicle.create({
       vehicleId,
+      dmId: tm.dmId,
       tmId: tm.id,
       tmNumber: tm.tmId,
       dmNumber: tm.dmNumber,
@@ -653,7 +701,11 @@ exports.getDriversByTransportManager = async (req, res) => {
   try {
     const { tmId } = req.params;
 
-    const tm = await TransportManager.findOne({ where: { tmId } });
+    let tm = await TransportManager.findOne({ where: { tmId } });
+    if (!tm && !isNaN(Number(tmId))) {
+      tm = await TransportManager.findByPk(Number(tmId));
+    }
+
     if (!tm) {
       return res.status(404).json({ error: 'Transport Manager not found' });
     }
@@ -674,7 +726,11 @@ exports.getVehiclesByTransportManager = async (req, res) => {
   try {
     const { tmId } = req.params;
 
-    const tm = await TransportManager.findOne({ where: { tmId } });
+    let tm = await TransportManager.findOne({ where: { tmId } });
+    if (!tm && !isNaN(Number(tmId))) {
+      tm = await TransportManager.findByPk(Number(tmId));
+    }
+
     if (!tm) {
       return res.status(404).json({ error: 'Transport Manager not found' });
     }
@@ -744,7 +800,11 @@ exports.getTripsByTransportManager = async (req, res) => {
   try {
     const { tmId } = req.params;
 
-    const tm = await TransportManager.findOne({ where: { tmId } });
+    let tm = await TransportManager.findOne({ where: { tmId } });
+    if (!tm && !isNaN(Number(tmId))) {
+      tm = await TransportManager.findByPk(Number(tmId));
+    }
+
     if (!tm) {
       return res.status(404).json({ error: 'Transport Manager not found' });
     }
@@ -755,6 +815,96 @@ exports.getTripsByTransportManager = async (req, res) => {
 
     res.json(trips);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get dispatches / milk procurements assigned to transport manager via trips
+exports.getDispatchesByTransportManager = async (req, res) => {
+  try {
+    const { tmId } = req.params;
+    let tm = await TransportManager.findOne({ where: { tmId } });
+    if (!tm && !isNaN(Number(tmId))) {
+      tm = await TransportManager.findByPk(Number(tmId));
+    }
+    if (!tm) return res.status(404).json({ error: 'Transport Manager not found' });
+
+    const trips = await Trip.findAll({ where: { tmId: tm.id } });
+    const tripIds = trips.map(t => t.tripId);
+
+    const procurements = await require('../models/MilkProcurement').findAll({
+      where: {
+        assignedTripId: tripIds,
+      },
+      order: [['updatedAt', 'DESC']],
+    });
+
+    res.json({ trips, procurements });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Get Trips by Driver
+exports.getTripsByDriver = async (req, res) => {
+  try {
+    const { driverId } = req.params;
+
+    let driver = await Driver.findOne({ where: { driverId } });
+    if (!driver && !isNaN(Number(driverId))) {
+      driver = await Driver.findByPk(Number(driverId));
+    }
+
+    if (!driver) {
+      return res.status(404).json({ error: 'Driver not found' });
+    }
+
+    const trips = await Trip.findAll({ where: { driverId: driver.id } });
+    res.json(trips);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Update Trip status/metrics
+exports.updateTrip = async (req, res) => {
+  try {
+    const { tripId } = req.params;
+    const { tripStatus, actualDistance, driverPayment, startTime, endTime } = req.body;
+
+    const trip = await Trip.findByPk(tripId);
+    if (!trip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    if (tripStatus) {
+      trip.tripStatus = tripStatus;
+      if (tripStatus === 'IN_PROGRESS' && !trip.startTime) {
+        trip.startTime = new Date();
+      }
+      if (tripStatus === 'COMPLETED') {
+        trip.endTime = endTime ? new Date(endTime) : new Date();
+      }
+    }
+    if (actualDistance !== undefined) trip.actualDistance = actualDistance;
+    if (driverPayment !== undefined) trip.driverPayment = driverPayment;
+    if (startTime) trip.startTime = new Date(startTime);
+    if (endTime) trip.endTime = new Date(endTime);
+
+    await trip.save();
+
+    // Sync procurement state when trip completed
+    if (trip.tripStatus === 'COMPLETED') {
+      const procurement = await require('../models/MilkProcurement').findOne({ where: { assignedTripId: trip.tripId } });
+      if (procurement) {
+        procurement.dispatchStatus = 'REACHED_DISTRICT';
+        await procurement.save();
+      }
+    }
+
+    res.json({ message: 'Trip updated successfully', trip });
+  } catch (error) {
+    console.error('Error updating trip:', error);
     res.status(500).json({ error: error.message });
   }
 };
@@ -788,5 +938,202 @@ exports.deleteTransportStaff = async (req, res) => {
     res.json({ message: 'Staff deleted successfully' });
   } catch (error) {
     res.status(500).json({ error: error.message });
+  }
+};
+
+// Chiller Tank Management
+exports.createChillerTank = async (req, res) => {
+  try {
+    const { tankId: requestedId, name, milkType, capacity, unitType } = req.body;
+    const ChillerTank = require('../models/ChillerTank');
+
+    const nextSeq = await getNextSequence(ChillerTank, 'TANK-', 'tankId');
+    const tankId = requestedId || `TANK-${String(nextSeq).padStart(3, '0')}`;
+
+    const tank = await ChillerTank.create({
+      tankId,
+      dmId: req.user.role === 'DISTRICT_MANAGER' ? req.user.id : (req.user.dmId || null),
+      name: name || `${milkType} Tank ${nextSeq}`,
+      unitType: unitType || 'SILO',
+      milkType,
+      capacity,
+      currentLevel: 0,
+      status: 'ACTIVE'
+    });
+
+    res.status(201).json({ success: true, message: 'Storage unit provisioned successfully', data: tank });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error creating storage unit', error: error.message });
+  }
+};
+
+exports.getChillerTanks = async (req, res) => {
+  try {
+    const ChillerTank = require('../models/ChillerTank');
+    const filter = {};
+    if (req.user && req.user.role === 'DISTRICT_MANAGER') {
+        filter.dmId = req.user.id;
+    }
+    const tanks = await ChillerTank.findAll({ where: filter });
+    res.status(200).json({ success: true, data: tanks });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching tanks', error: error.message });
+  }
+};
+
+exports.deleteChillerTank = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ChillerTank = require('../models/ChillerTank');
+    await ChillerTank.destroy({ where: { id } });
+    res.status(200).json({ success: true, message: 'Tank deleted successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error deleting tank', error: error.message });
+  }
+};
+
+
+// Machine Management
+exports.createMachine = async (req, res) => {
+  try {
+    const { name, type, capacity, machineId: requestedId, imageUrl, lastMaintenanceDate } = req.body;
+    const Machine = require('../models/Machine');
+    const DistrictManager = require('../models/DistrictManager');
+
+    let dmId = req.user.id;
+    if (req.user.role === 'ADMIN') {
+        const dm = await DistrictManager.findOne({ where: { adminId: req.user.id } });
+        dmId = dm ? dm.id : null;
+    }
+
+    const nextSeq = await getNextSequence(Machine, 'MCH-', 'machineId');
+    const machineId = requestedId || `MCH-${String(nextSeq).padStart(3, '0')}`;
+
+    const machine = await Machine.create({
+      machineId,
+      name,
+      type,
+      capacity,
+      dmId,
+      imageUrl: imageUrl || 'https://images.unsplash.com/photo-1550989460-0adf9ea622e2?q=80&w=1500&auto=format&fit=crop',
+      lastMaintenanceDate: lastMaintenanceDate || null,
+      status: 'IDLE'
+    });
+
+    res.status(201).json({ success: true, message: 'Machine deployed successfully', data: machine });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error creating machine', error: error.message });
+  }
+};
+
+exports.getMachines = async (req, res) => {
+  try {
+    const Machine = require('../models/Machine');
+    const filter = {};
+    if (req.user && req.user.role === 'DISTRICT_MANAGER') {
+        filter.dmId = req.user.id;
+    }
+    const machines = await Machine.findAll({ where: filter });
+    res.status(200).json({ success: true, data: machines });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching machines', error: error.message });
+  }
+};
+
+exports.updateMachine = async (req, res) => {
+    try {
+        const Machine = require('../models/Machine');
+        await Machine.update(req.body, { where: { id: req.params.id } });
+        res.json({ success: true, message: 'Machine updated successfully' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.deleteMachine = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const Machine = require('../models/Machine');
+    await Machine.destroy({ where: { id } });
+    res.status(200).json({ success: true, message: 'Machine decommissioned successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error deleting machine', error: error.message });
+  }
+};
+
+exports.updateChillerTank = async (req, res) => {
+    try {
+        const ChillerTank = require('../models/ChillerTank');
+        await ChillerTank.update(req.body, { where: { id: req.params.id } });
+        res.json({ success: true, message: 'Storage unit updated' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.getMPCSDispatches = async (req, res) => {
+  try {
+    const MPCSDispatch = require('../models/MPCSDispatch');
+    const filter = {};
+    const dispatches = await MPCSDispatch.findAll({
+      order: [['createdAt', 'DESC']]
+    });
+    res.status(200).json({ success: true, data: dispatches });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Error fetching logistics history', error: error.message });
+  }
+};
+
+exports.updateMachine = async (req, res) => {
+    try {
+        const Machine = require('../models/Machine');
+        await Machine.update(req.body, { where: { id: req.params.id } });
+        res.json({ success: true, message: 'Machine parameters updated' });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+};
+
+exports.createDeliveryRequest = async (req, res) => {
+  try {
+    const { batchId, quantity, destination } = req.body;
+    const dmId = req.user.id;
+    const DeliveryRequest = require('../models/DeliveryRequest');
+    const Batch = require('../models/Batch');
+
+    const nextId = await getNextSequence(DeliveryRequest, 'DEL-', 'deliveryId');
+    const deliveryId = `DEL-${String(nextId).padStart(4, '0')}`;
+
+    const delivery = await DeliveryRequest.create({
+      deliveryId,
+      batchId,
+      districtManagerId: dmId,
+      quantity,
+      destination: destination || 'RETAIL_SHOP_GENERAL',
+      status: 'PENDING'
+    });
+
+    // Option: Update batch status to 'AWAITING_DELIVERY'
+    const batch = await Batch.findByPk(batchId);
+    if (batch) {
+        batch.status = 'AWAITING_DELIVERY';
+        await batch.save();
+    }
+
+    res.status(201).json({ success: true, message: 'Delivery request created and sent to Transport Dept', data: delivery });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error creating delivery request', error: err.message });
+  }
+};
+
+exports.getDeliveryRequests = async (req, res) => {
+  try {
+    const DeliveryRequest = require('../models/DeliveryRequest');
+    const filter = {};
+    if (req.user.role === 'DISTRICT_MANAGER') filter.districtManagerId = req.user.id;
+    const deliveries = await DeliveryRequest.findAll({ where: filter, order: [['createdAt', 'DESC']] });
+    res.status(200).json({ success: true, data: deliveries });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Error fetching deliveries', error: err.message });
   }
 };

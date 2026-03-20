@@ -15,6 +15,11 @@ const Driver = sequelize.define(
 
       comment: 'Unique Driver ID: A1-DM1-TM1-DR1, etc.'
     },
+    dmId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Reference to parent District Manager'
+    },
     tmId: {
       type: DataTypes.INTEGER,
       allowNull: false,

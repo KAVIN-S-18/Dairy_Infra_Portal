@@ -18,5 +18,8 @@ router.patch('/farmers/:farmerId/details', mpcsOfficerController.updateFarmerDet
 // Milk procurement logging
 router.post('/milk-procurement', mpcsOfficerController.logMilkProcurement);
 router.get('/milk-procurement/summary', mpcsOfficerController.getProcurementSummary);
+router.post('/milk-procurement/:procurementId/dispatch', mpcsOfficerController.dispatchProcurement);
+router.post('/milk-procurement/dispatch-bulk', mpcsOfficerController.dispatchBulk);
+router.post('/milk-procurement/:procurementId/reached-district', mpcsOfficerController.markReachedDistrict);
 
 module.exports = router;

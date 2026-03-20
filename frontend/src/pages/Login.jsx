@@ -9,6 +9,7 @@ const { Text } = Typography;
 
 const Login = () => {
     const [form] = Form.useForm();
+    const [messageApi, contextHolder] = message.useMessage();
     const [loading, setLoading] = React.useState(false);
     const navigate = useNavigate();
     const API_URL = 'http://localhost:5000/api';
@@ -27,7 +28,7 @@ const Login = () => {
             // Also write to localStorage as fallback for components that still read from it
             localStorage.setItem('token', token);
             localStorage.setItem('user', JSON.stringify(user));
-            message.success('Login successful!');
+            messageApi.success('Login successful!');
             switch (user.role) {
                 case 'SUPER_ADMIN': navigate('/super-admin-dashboard'); break;
                 case 'ADMIN': navigate('/admin-dashboard'); break;
@@ -41,7 +42,7 @@ const Login = () => {
                 default: navigate('/');
             }
         } catch (error) {
-            message.error(error.response?.data?.error || 'Login failed. Please try again.');
+            messageApi.error(error.response?.data?.error || 'Login failed. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -49,6 +50,7 @@ const Login = () => {
 
     return (
         <div className="dip-page">
+            {contextHolder}
             {/* ── Premium Gradient Background ── */}
             <div className="dip-bg-container">
                 <div className="dip-bg-pattern" />

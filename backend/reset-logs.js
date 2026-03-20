@@ -49,30 +49,36 @@ async function reset() {
                 farmerId: farmer.id,
                 farmerFarmerId: farmer.farmerId,
                 quantityLiters: 15.5,
-                quality: 'A',
+                milkType: 'COW',
+                session: 'MORNING',
                 temperature: 4.1,
                 pricePerLiter: 34.56,
                 totalAmount: 15.5 * 34.56,
                 procurementDate: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
                 loggedByMpcsOfficerId: officer.id,
-                notes: '[Session: Morning] Excellent quality',
+                notes: '[Session: Morning] Registered day log',
                 snf: 8.0,
-                fat: 4.0
+                fat: 4.0,
+                isDispatched: true,
+                dispatchedAt: new Date(Date.now() - 1 * 60 * 60 * 1000)
             });
 
             await MilkProcurement.create({
                 farmerId: farmer.id,
                 farmerFarmerId: farmer.farmerId,
                 quantityLiters: 12.0,
-                quality: 'B',
+                milkType: 'BUFFALO',
+                session: 'EVENING',
                 temperature: 4.5,
                 pricePerLiter: 33.5,
                 totalAmount: 12.0 * 33.5,
                 procurementDate: new Date(Date.now() - 30 * 60 * 1000), // 30 mins ago
                 loggedByMpcsOfficerId: officer.id,
-                notes: '[Session: Evening] Good quality',
+                notes: '[Session: Evening] Registered evening log',
                 snf: 8.2,
-                fat: 3.8
+                fat: 3.8,
+                isDispatched: false,
+                dispatchedAt: null
             });
         }
 

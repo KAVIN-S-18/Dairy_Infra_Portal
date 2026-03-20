@@ -41,6 +41,11 @@ const Operator = sequelize.define(
       allowNull: false,
       unique: true,
     },
+    supervisorId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      comment: 'Reference to immediate supervisor'
+    },
     passwordHash: {
       type: DataTypes.STRING,
       allowNull: false,

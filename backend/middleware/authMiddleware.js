@@ -13,6 +13,7 @@ exports.verifyToken = (req, res, next) => {
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your_secret_key');
         req.user = decoded;
+        console.log(`[AUTH] Path: ${req.path}, Decoded Token: ${JSON.stringify(decoded)}`);
         next();
     } catch (error) {
         console.error('Token verification error:', error);
@@ -45,6 +46,7 @@ exports.isAdmin = (req, res, next) => {
  */
 exports.isMpcsOfficer = (req, res, next) => {
     if (req.user.role !== 'MPCS_OFFICER') {
+        console.warn(`[AUTH] 403 Forbidden: Expected MPCS_OFFICER, got ${req.user.role} for path ${req.path}`);
         return res.status(403).json({ error: 'Only MPCS Officers can access this resource' });
     }
     next();
@@ -76,6 +78,28 @@ exports.isOperator = (req, res, next) => {
 exports.isFarmer = (req, res, next) => {
     if (req.user.role !== 'FARMER') {
         return res.status(403).json({ error: 'Only Farmers can access this resource' });
+    }
+    next();
+};
+
+/**
+ * Check if user is Transport Manager
+ */
+exports.isTransportManager = (req, res, next) => {
+    if (req.user.role !== 'TRANSPORT_MANAGER') {
+        console.warn(`[AUTH] 403 Forbidden: Expected TRANSPORT_MANAGER, got ${req.user.role} for path ${req.path}`);
+        return res.status(403).json({ error: 'Only Transport Managers can access this resource' });
+    }
+    next();
+};
+
+/**
+ * Check if user is Driver
+ */
+exports.isDriver = (req, res, next) => {
+    if (req.user.role !== 'DRIVER') {
+        console.warn(`[AUTH] 403 Forbidden: Expected DRIVER, got ${req.user.role} for path ${req.path}`);
+        return res.status(403).json({ error: 'Only Drivers can access this resource' });
     }
     next();
 };

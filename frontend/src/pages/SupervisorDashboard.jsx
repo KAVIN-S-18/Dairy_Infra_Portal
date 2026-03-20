@@ -18,6 +18,7 @@ import {
   SettingOutlined
 } from "@ant-design/icons";
 import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 import dayjs from 'dayjs';
 
 const { Header, Sider, Content } = Layout;
@@ -29,22 +30,23 @@ const SupervisorDashboard = () => {
   const [activeTab, setActiveTab] = useState('tasks');
   const [loading, setLoading] = useState(false);
 
-  // Tasks from LocalStorage
+  // Tasks from backend + LocalStorage fallback
   const [myTasks, setMyTasks] = useState([]);
   const [myBatches, setMyBatches] = useState([]);
+  const [collectionTasks, setCollectionTasks] = useState([]);
   const [operators, setOperators] = useState([]);
   const [machineSearch, setMachineSearch] = useState('');
   const [machineStatusFilter, setMachineStatusFilter] = useState('ALL');
   const [isAssignOpModalVisible, setIsAssignOpModalVisible] = useState(false);
   const [selectedTaskForOp, setSelectedTaskForOp] = useState(null);
   const [assignOpForm] = Form.useForm();
+  
+  const [chillerTanks, setChillerTanks] = useState([]);
+  const [isMoveToChillerModalVisible, setIsMoveToChillerModalVisible] = useState(false);
+  const [selectedDispatchForChiller, setSelectedDispatchForChiller] = useState(null);
+  const [moveForm] = Form.useForm();
 
-  const [machineData, setMachineData] = useState([
-    { id: 'MCH-001', name: 'Industrial Chiller Unit A', type: 'CHILLER', status: 'RUNNING', batch: 'BATCH-4921', progress: 65, image: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=400' },
-    { id: 'MCH-002', name: 'Pasteurization System B2', type: 'PASTEURIZER', status: 'RUNNING', batch: 'BATCH-8821', progress: 30, image: 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=400' },
-    { id: 'MCH-003', name: 'Homogenizer Master-4', type: 'HOMOGENIZER', status: 'IDLE', batch: null, progress: 0, image: 'https://images.unsplash.com/photo-1590959651373-a3db0f38a961?auto=format&fit=crop&q=80&w=400' },
-    { id: 'MCH-004', name: 'Auto-Packer Unit 01', type: 'PACKER', status: 'MAINTENANCE', batch: null, progress: 0, image: 'https://images.unsplash.com/photo-1565463741600-9fed8e132717?auto=format&fit=crop&q=80&w=400' },
-  ]);
+  const [machineData, setMachineData] = useState([]);
 
   // Use sessionStorage for per-tab identity (so multiple tabs stay independent)
   const [user, setUser] = useState(() => JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || '{}'));
@@ -64,39 +66,77 @@ const SupervisorDashboard = () => {
     return () => clearInterval(interval);
   }, []);
 
-  const loadData = () => {
-    // Always read fresh from sessionStorage first, then fall back to localStorage
-    const freshUser = JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || '{}');
-    // 1. Filter assignments from MPCS Dispatches
-    const savedDispatches = localStorage.getItem('mpcsDispatches');
-    if (savedDispatches) {
-      const allD = JSON.parse(savedDispatches);
-      const assignedToMe = allD.filter(d => {
-        // Show if directly assigned by name
-        if (d.assignedSupervisor === freshUser.fullName) return true;
-        // For COLLECTION supervisors: show any unassigned dispatch at district OR in transit to chiller
-        if (freshUser.specialization === 'COLLECTION') {
-          if (d.status === 'RECEIVED_AT_DISTRICT') return true;
-          if (d.status === 'MOVING_TO_CHILLER' && !d.assignedSupervisor) return true;
-        }
-        return false;
+  const fetchCollectionTasks = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/supervisor/collection-tasks`, {
+        headers: { Authorization: `Bearer ${token}` },
       });
-      setMyTasks(assignedToMe);
+      if (response.data?.success && Array.isArray(response.data.data)) {
+        setCollectionTasks(response.data.data);
+        setMyTasks(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load collection tasks', error);
     }
+  };
 
-    // 2. Filter batches
-    const savedBatches = localStorage.getItem('districtBatches');
-    if (savedBatches) {
-      const allB = JSON.parse(savedBatches);
-      const assignedToMe = allB.filter(b => b.assignedSupervisor === freshUser.fullName);
-      setMyBatches(assignedToMe);
+  const fetchChillerTanks = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/supervisor/chiller-tanks`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.data?.success) {
+        setChillerTanks(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load chiller tanks', error);
     }
+  };
 
-    // 3. Mock Operators
-    setOperators([
-      { id: 'OP-101', fullName: 'John Operator', status: 'AVAILABLE' },
-      { id: 'OP-102', fullName: 'Mike Tech', status: 'AVAILABLE' },
-    ]);
+  const fetchMachines = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/hierarchy/machines`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (response.data?.success) {
+        setMachineData(response.data.data);
+      }
+    } catch (error) {
+      console.error('Failed to load machines', error);
+    }
+  };
+
+  const fetchOperators = async () => {
+    try {
+      const response = await axios.get(`${API_URL}/supervisor/operators`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.data?.success) {
+        setOperators(response.data.data.map(o => ({ ...o, status: 'AVAILABLE' })));
+      }
+    } catch (e) {
+      console.error('Failed to load real operators');
+    }
+  };
+
+  const loadData = async () => {
+    const freshUser = JSON.parse(sessionStorage.getItem('user') || localStorage.getItem('user') || '{}');
+    if (freshUser.specialization === 'COLLECTION') {
+      await fetchCollectionTasks();
+      await fetchChillerTanks();
+      await fetchMachines();
+      await fetchOperators();
+    } else if (freshUser.specialization === 'PRODUCTION') {
+      await fetchOperators();
+      await fetchMachines();
+      // fetchWorkAssignments already exists but we'll call it here
+      const savedBatches = localStorage.getItem('districtBatches');
+      if (savedBatches) {
+          const allB = JSON.parse(savedBatches);
+          // Filter batches where this supervisor is assigned correctly
+          setMyBatches(allB.filter(b => b.assignedSupervisor === freshUser.fullName));
+      }
+    }
   };
 
   const handleLogout = () => {
@@ -105,38 +145,51 @@ const SupervisorDashboard = () => {
     navigate('/login');
   };
 
-  const handleCompleteDispatch = (dispatchId) => {
-    const savedDispatches = JSON.parse(localStorage.getItem('mpcsDispatches') || '[]');
-    let addedVolume = 0;
-    const updated = savedDispatches.map(d => {
-      if (d.id === dispatchId) {
-        addedVolume = parseFloat(d.quantity || 0);
-        return {
-          ...d,
-          status: 'MILK_IN_CHILLING_PLANT',
-          assignedSupervisor: user.fullName,
-          assignedSupervisorId: user.id
-        };
-      }
-      return d;
-    });
-    localStorage.setItem('mpcsDispatches', JSON.stringify(updated));
+  const handleReceiveMilk = async (procurementId) => {
+    try {
+      await axios.patch(`${API_URL}/supervisor/collection-tasks/${procurementId}/collect`, null, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      message.success(`Milk Intake Recorded Successfully!`);
+      await fetchCollectionTasks();
+      loadData();
+    } catch (error) {
+      message.error('Failed to record milk intake');
+    }
+  };
 
-    // Increase Chiller Volume
-    const currentVol = parseFloat(localStorage.getItem('districtChillerVolume') || '0');
-    localStorage.setItem('districtChillerVolume', (currentVol + addedVolume).toString());
+  const handleMoveToChiller = async (record) => {
+    setSelectedDispatchForChiller(record);
+    setIsMoveToChillerModalVisible(true);
+    // Auto-select tank by milk type
+    const suggestedTank = chillerTanks.find(t => t.milkType === record.milkType);
+    if (suggestedTank) {
+        moveForm.setFieldsValue({ chillerTankId: suggestedTank.id });
+    }
+  };
 
-    message.success(`Task ${dispatchId} completed! ${addedVolume}L moved to main Silo.`);
-    loadData();
+  const handleConfirmMoveToChiller = async (values) => {
+    try {
+      await axios.patch(`${API_URL}/supervisor/collection-tasks/${selectedDispatchForChiller.id}/complete`, {
+          chillerTankId: values.chillerTankId
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      message.success(`Milk moved to selected Chiller Tank successfully!`);
+      setIsMoveToChillerModalVisible(false);
+      await fetchCollectionTasks();
+      await fetchChillerTanks();
+    } catch (error) {
+      message.error(error.response?.data?.message || 'Failed to move to chiller');
+    }
   };
 
   const handleCompleteBatchStep = (batchId) => {
     const sequence = [
-      'CHILLING', 'CHILLING_DONE',
+      'CLARIFICATION', 'CLARIFICATION_DONE',
       'PASTEURIZATION', 'PASTEURIZATION_DONE',
       'HOMOGENIZATION', 'HOMOGENIZATION_DONE',
-      'PACKAGING', 'PACKAGING_DONE',
-      'STORAGE', 'STORAGE_DONE',
+      'PACKING', 'PACKING_DONE',
       'DELIVERY'
     ];
 
@@ -193,79 +246,103 @@ const SupervisorDashboard = () => {
         return (
           <>
             <div style={{ marginBottom: '40px' }}>
-              <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#111827', margin: 0 }}>My Floor Assignments</h1>
-              <p style={{ color: '#6b7280', fontSize: '15px', marginTop: '4px' }}>Managing milk movement and production batches.</p>
+              <h1 style={{ fontSize: '28px', fontWeight: 800, color: '#111827', margin: 0 }}>
+                {user.specialization === 'COLLECTION' ? 'Milk Reception Control' : 'Factory Floor Assignments'}
+              </h1>
+              <p style={{ color: '#6b7280', fontSize: '15px', marginTop: '4px' }}>
+                {user.specialization === 'COLLECTION' ? 'Recording intake and moving milk to chiller storage.' : 'Managing factory processes and production batches.'}
+              </p>
             </div>
 
-            <Card
-              title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Milk Reception Tasks</span>}
-              bordered={false}
-              style={{ borderRadius: '16px', marginBottom: '32px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
-            >
-              <Table
-                columns={[
-                  { title: 'DISPATCH ID', dataIndex: 'id', key: 'id' },
-                  { title: 'QTY (L)', dataIndex: 'quantity', key: 'quantity', render: q => <span style={{ fontWeight: 700 }}>{q} L</span> },
-                  {
-                    title: 'STATUS', dataIndex: 'status', key: 'status', render: s => (
-                      <Tag color={s === 'MOVING_TO_CHILLER' ? 'processing' : 'success'}>
-                        {s.replace(/_/g, ' ')}
-                      </Tag>
-                    )
-                  },
-                  {
-                    title: 'ACTION',
-                    key: 'action',
-                    render: (_, record) => (
-                      record.status === 'MOVING_TO_CHILLER' ? (
-                        <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={() => handleCompleteDispatch(record.id)}>
-                          Mark as Chilled
-                        </Button>
-                      ) : <Tag color="green">COMPLETED</Tag>
-                    )
-                  }
-                ]}
-                dataSource={myTasks}
-                rowKey="id"
-                pagination={false}
-              />
-            </Card>
+            {user.specialization === 'COLLECTION' && (
+              <Card
+                title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Milk In-take Tasks (Waiting for Reception)</span>}
+                variant="borderless"
+                style={{ borderRadius: '16px', marginBottom: '32px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
+              >
+                <Table
+                  columns={[
+                    { title: 'BATCH ID', dataIndex: 'dispatchId', key: 'dispatchId', render: id => <span style={{ fontSize: '12px' }}>{id}</span> },
+                    { title: 'MPCS CENTER', dataIndex: 'mpcsName', key: 'mpcsName', render: n => <b style={{ color: '#312e81' }}>{n}</b> },
+                    { title: 'MILK TYPE', dataIndex: 'milkType', key: 'milkType', render: t => <Tag color={t === 'COW' ? 'blue' : 'gold'}>{t}</Tag> },
+                    { title: 'QTY (L)', dataIndex: 'totalQuantity', key: 'totalQuantity', render: q => <span style={{ fontWeight: 700 }}>{q} L</span> },
+                    {
+                      title: 'LOGISTICS STATUS', dataIndex: 'status', key: 'status', render: s => (
+                        <Tag color={s === 'MOVED_TO_CHILLER' ? 'success' : s === 'REACHED_DISTRICT' ? 'warning' : 'processing'}>
+                          {s ? s.replace(/_/g, ' ') : 'UNKNOWN'}
+                        </Tag>
+                      )
+                    },
+                    {
+                      title: 'OPERATIONAL STEP',
+                      key: 'action',
+                      render: (_, record) => {
+                        if (record.status === 'REACHED_DISTRICT') {
+                          return (
+                            <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={() => handleReceiveMilk(record.id)}>
+                              Mark Received at District
+                            </Button>
+                          );
+                        }
+                        if (record.status === 'RECEIVED_BY_DISTRICT') {
+                          return (
+                            <Button type="primary" size="small" style={{ background: '#10b981', borderColor: '#10b981' }} icon={<ThunderboltOutlined />} onClick={() => handleMoveToChiller(record)}>
+                              Move to Chiller Tank
+                            </Button>
+                          );
+                        }
+                        if (record.status === 'MOVED_TO_CHILLER') {
+                          return <Tag color="green">In Chiller Storage</Tag>;
+                        }
 
-            <Card
-              title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Active Production Batches</span>}
-              bordered={false}
-              style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
-            >
-              <Table
-                columns={[
-                  { title: 'BATCH ID', dataIndex: 'id', key: 'id' },
-                  { title: 'PROCESS', dataIndex: 'status', key: 'status', render: s => <Tag color="blue">{s.replace(/_/g, ' ')}</Tag> },
-                  { title: 'STARTED AT', dataIndex: 'createdAt', key: 'createdAt' },
-                  { title: 'OPERATOR', dataIndex: 'assignedOperator', key: 'assignedOperator', render: op => op ? <Tag color="orange">{op}</Tag> : <Tag>Unassigned</Tag> },
-                  {
-                    title: 'ACTIONS',
-                    key: 'action',
-                    render: (_, record) => (
-                      <Space>
-                        {!record.assignedOperator && (
-                          <Button size="small" onClick={() => { setSelectedTaskForOp(record.id); setIsAssignOpModalVisible(true); }}>
-                            Assign Operator
-                          </Button>
-                        )}
-                        {record.status !== 'DELIVERED_TO_RETAIL_DONE' && (
-                          <Button type="primary" ghost size="small" icon={<ThunderboltOutlined />} onClick={() => handleCompleteBatchStep(record.id)} disabled={!record.assignedOperator}>
-                            Review & Complete
-                          </Button>
-                        )}
-                      </Space>
-                    )
-                  }
-                ]}
-                dataSource={myBatches}
-                rowKey="id"
-                pagination={false}
-              />
-            </Card>
+                        return <Tag color="default">In Transit to District</Tag>;
+                      }
+                    }
+                  ]}
+                  dataSource={collectionTasks}
+                  rowKey="id"
+                  pagination={false}
+                />
+              </Card>
+            )}
+
+            {user.specialization === 'PRODUCTION' && (
+              <Card
+                title={<span style={{ fontWeight: 800, fontSize: '18px' }}>Active Production Batches</span>}
+                bordered={false}
+                style={{ borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.02)' }}
+              >
+                <Table
+                  columns={[
+                    { title: 'BATCH ID', dataIndex: 'id', key: 'id' },
+                    { title: 'PROCESS', dataIndex: 'status', key: 'status', render: s => <Tag color="blue">{s.replace(/_/g, ' ')}</Tag> },
+                    { title: 'STARTED AT', dataIndex: 'createdAt', key: 'createdAt' },
+                    { title: 'OPERATOR', dataIndex: 'assignedOperator', key: 'assignedOperator', render: op => op ? <Tag color="orange">{op}</Tag> : <Tag>Unassigned</Tag> },
+                    {
+                      title: 'ACTIONS',
+                      key: 'action',
+                      render: (_, record) => (
+                        <Space>
+                          {!record.assignedOperator && (
+                            <Button size="small" onClick={() => { setSelectedTaskForOp(record.id); setIsAssignOpModalVisible(true); }}>
+                              Assign Operator
+                            </Button>
+                          )}
+                          {record.status !== 'DELIVERED_TO_RETAIL_DONE' && (
+                            <Button type="primary" ghost size="small" icon={<ThunderboltOutlined />} onClick={() => handleCompleteBatchStep(record.id)} disabled={!record.assignedOperator}>
+                              Review & Complete
+                            </Button>
+                          )}
+                        </Space>
+                      )
+                    }
+                  ]}
+                  dataSource={myBatches}
+                  rowKey="id"
+                  pagination={false}
+                />
+              </Card>
+            )}
           </>
         );
       case 'operators':
@@ -288,8 +365,15 @@ const SupervisorDashboard = () => {
           </Card>
         );
       case 'machines':
+        const machineImages = {
+            CLARIFIER: 'https://images.unsplash.com/photo-1581091226825-a6a2a5aee158?auto=format&fit=crop&q=80&w=400',
+            PASTEURIZER: 'https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=400',
+            HOMOGENIZER: 'https://images.unsplash.com/photo-1590959651373-a3db0f38a961?auto=format&fit=crop&q=80&w=400',
+            PACKER: 'https://images.unsplash.com/photo-1565463741600-9fed8e132717?auto=format&fit=crop&q=80&w=400'
+        };
+
         const filteredMachines = machineData.filter(m => {
-          const matchSearch = m.name.toLowerCase().includes(machineSearch.toLowerCase()) || m.id.toLowerCase().includes(machineSearch.toLowerCase());
+          const matchSearch = (m.name || '').toLowerCase().includes(machineSearch.toLowerCase()) || (m.machineId || '').toLowerCase().includes(machineSearch.toLowerCase());
           const matchStatus = machineStatusFilter === 'ALL' || m.status === machineStatusFilter;
           return matchSearch && matchStatus;
         });
@@ -326,16 +410,18 @@ const SupervisorDashboard = () => {
                 <Col xs={24} md={12} xl={6} key={m.id}>
                   <Card
                     hoverable
-                    cover={<div style={{ height: '180px', overflow: 'hidden' }}><img alt={m.name} src={m.image} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>}
-                    bodyStyle={{ padding: '20px' }}
+                    cover={<div style={{ height: '180px', overflow: 'hidden' }}><img alt={m.name} src={m.imageUrl || machineImages[m.type]} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /></div>}
+                    styles={{ body: { padding: '20px' } }}
+                    variant="borderless"
                     style={{ borderRadius: '16px', overflow: 'hidden', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                       <div>
-                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.id}</div>
+                        <div style={{ fontSize: '11px', fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{m.machineId}</div>
                         <h3 style={{ margin: '4px 0', fontSize: '16px', fontWeight: 700, color: '#111827' }}>{m.name}</h3>
+                        <Tag color="blue">{m.type}</Tag>
                       </div>
-                      <Tag color={m.status === 'RUNNING' ? 'success' : m.status === 'IDLE' ? 'warning' : 'error'} style={{ borderRadius: '4px', margin: 0 }}>
+                      <Tag color={m.status === 'RUNNING' ? 'success' : m.status === 'IDLE' ? 'warning' : m.status === 'MAINTENANCE' ? 'error' : 'default'} style={{ borderRadius: '4px', margin: 0 }}>
                         {m.status}
                       </Tag>
                     </div>
@@ -345,8 +431,8 @@ const SupervisorDashboard = () => {
                     {m.status === 'RUNNING' ? (
                       <div>
                         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '13px', color: '#64748b' }}>Processing: <b>{m.batch}</b></span>
-                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#312e81' }}>{m.progress}%</span>
+                          <span style={{ fontSize: '13px', color: '#64748b' }}>Processing: <b>{m.currentBatchId || 'Unknown'}</b></span>
+                          <span style={{ fontSize: '13px', fontWeight: 700, color: '#312e81' }}>{m.progress || 0}%</span>
                         </div>
                         <div style={{ height: '8px', background: '#f1f5f9', borderRadius: '4px', overflow: 'hidden' }}>
                           <div style={{ height: '100%', background: '#312e81', width: `${m.progress}%`, transition: 'width 0.5s ease' }} />
@@ -371,7 +457,7 @@ const SupervisorDashboard = () => {
       case 'profile':
         return (
           <div style={{ maxWidth: '800px', margin: '0 auto' }}>
-            <Card bordered={false} style={{ borderRadius: '16px', overflow: 'hidden' }}>
+            <Card variant="borderless" style={{ borderRadius: '16px', overflow: 'hidden' }}>
               <div style={{ background: '#1e1b4b', height: '120px', margin: '-24px -24px 0 -24px' }} />
               <div style={{ marginTop: '-60px', textAlign: 'center' }}>
                 <Avatar size={120} style={{ border: '4px solid #fff', backgroundColor: '#e5e7eb' }} icon={<UserOutlined />} />
@@ -428,8 +514,8 @@ const SupervisorDashboard = () => {
             onClick={({ key }) => setActiveTab(key)}
             style={{ background: 'transparent', borderRight: 0 }}
             items={[
-              { key: 'tasks', icon: <ToolOutlined />, label: 'Factory Floor Tasks' },
-              { key: 'machines', icon: <SettingOutlined />, label: 'Machine Status' },
+              { key: 'tasks', icon: <ToolOutlined />, label: user.specialization === 'COLLECTION' ? 'Milk In-take Control' : 'Factory Floor Tasks' },
+              { key: 'machines', icon: <SettingOutlined />, label: user.specialization === 'COLLECTION' ? 'Chiller Status' : 'Machine Status' },
               { key: 'operators', icon: <TeamOutlined />, label: 'Manage Operators' },
               { key: 'profile', icon: <UserOutlined />, label: 'My Profile' },
             ]}
@@ -488,6 +574,33 @@ const SupervisorDashboard = () => {
               {operators.map(o => (
                 <Option key={o.id} value={o.id}>{o.fullName} ({o.id})</Option>
               ))}
+            </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={<span style={{ fontWeight: 800 }}>Transfer Milk to Chiller Tank</span>}
+        open={isMoveToChillerModalVisible}
+        onOk={() => moveForm.submit()}
+        onCancel={() => setIsMoveToChillerModalVisible(false)}
+        okText="Transfer Now"
+      >
+        <div style={{ marginBottom: '16px', padding: '12px', background: '#f0f9ff', borderRadius: '8px', border: '1px solid #bae6fd' }}>
+            <p style={{ margin: 0, fontSize: '12px', color: '#0369a1' }}>BATCH TO STORE:</p>
+            <p style={{ margin: 0, fontWeight: 700 }}>{selectedDispatchForChiller?.totalQuantity} Liters of {selectedDispatchForChiller?.milkType} MILK</p>
+        </div>
+        <Form form={moveForm} onFinish={handleConfirmMoveToChiller} layout="vertical">
+          <Form.Item name="chillerTankId" label="Choose Chiller Tank" rules={[{ required: true }]}>
+            <Select placeholder="Select storage tank">
+              {chillerTanks && chillerTanks.filter(t => t.milkType === selectedDispatchForChiller?.milkType).map(t => (
+                <Option key={t.id} value={t.id}>
+                    {t.name} - Current: {t.currentLevel}/{t.capacity}L
+                </Option>
+              ))}
+              {chillerTanks && !chillerTanks.some(t => t.milkType === selectedDispatchForChiller?.milkType) && (
+                <Option disabled value="none">No {selectedDispatchForChiller?.milkType} Tanks Available</Option>
+              )}
             </Select>
           </Form.Item>
         </Form>

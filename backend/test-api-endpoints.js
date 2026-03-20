@@ -76,10 +76,12 @@ const makeRequest = async (method, endpoint, body = null) => {
     const procurementRes = await makeRequest('POST', '/api/mpcs-officer/milk-procurement', {
       farmerId: newFarmerRes.data.id,
       quantityLiters: 25.5,
-      quality: 'A',
+      milkType: 'COW',
+      session: 'MORNING',
       temperature: 28.5,
       pricePerLiter: 45,
-      notes: 'Good quality milk'
+      procurementDate: new Date().toISOString(),
+      notes: 'Morning milk session'
     });
     console.log('✅ Milk procurement logged:', JSON.stringify(procurementRes.data, null, 2));
 

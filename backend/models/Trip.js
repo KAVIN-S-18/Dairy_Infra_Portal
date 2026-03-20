@@ -83,6 +83,10 @@ const Trip = sequelize.define(
       allowNull: false,
       comment: 'Milk transported in liters'
     },
+    milkType: {
+      type: DataTypes.ENUM('COW', 'BUFFALO', 'MIXED'),
+      defaultValue: 'COW',
+    },
     estimatedDistance: {
       type: DataTypes.FLOAT,
       allowNull: true,
